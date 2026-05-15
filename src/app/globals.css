@@ -1,0 +1,244 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-jh-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-jh-display), ui-serif, Georgia, serif;
+  --font-mono: var(--font-jh-mono), ui-monospace, SFMono-Regular, monospace;
+  --font-heading: var(--font-jh-sans), ui-sans-serif, system-ui, sans-serif;
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/*
+ * "Atelier" — editorial-modern palette.
+ *   Ink        #1A1233   deep indigo, base foreground / primary in light
+ *   Paper      #F5F1E8   warm cream background, the surface of a magazine page
+ *   Chartreuse #DCCE40   single accent — used sparingly for emphasis
+ *   Lavender   #C4AEF4   supporting tint, primary in dark mode
+ *   Sage       #C7D7A0   strong-match supporting tint (used as track on the score meter)
+ */
+:root {
+  --brand-ink: #1A1233;
+  --brand-paper: #F5F1E8;
+  --brand-chartreuse: #DCCE40;
+  --brand-lavender: #C4AEF4;
+  --brand-sage: #C7D7A0;
+
+  --background: #F5F1E8;
+  --foreground: #1A1233;
+  --card: #FFFFFF;
+  --card-foreground: #1A1233;
+  --popover: #FFFFFF;
+  --popover-foreground: #1A1233;
+  --primary: #1A1233;
+  --primary-foreground: #F5F1E8;
+  --secondary: #EDE6D3;
+  --secondary-foreground: #1A1233;
+  --muted: #EFE9DC;
+  --muted-foreground: #6B5F86;
+  --accent: #DCCE40;
+  --accent-foreground: #1A1233;
+  --destructive: #8E4B5C;
+  --border: #E2D8C2;
+  --input: #E2D8C2;
+  --ring: #1A1233;
+  --chart-1: #1A1233;
+  --chart-2: #6B5F86;
+  --chart-3: #C4AEF4;
+  --chart-4: #DCCE40;
+  --chart-5: #C7D7A0;
+  --radius: 0.75rem;
+  --sidebar: #F5F1E8;
+  --sidebar-foreground: #1A1233;
+  --sidebar-primary: #1A1233;
+  --sidebar-primary-foreground: #F5F1E8;
+  --sidebar-accent: #EDE6D3;
+  --sidebar-accent-foreground: #1A1233;
+  --sidebar-border: #E2D8C2;
+  --sidebar-ring: #1A1233;
+}
+
+.dark {
+  --background: #0F0822;
+  --foreground: #EDE5F8;
+  --card: #181030;
+  --card-foreground: #EDE5F8;
+  --popover: #181030;
+  --popover-foreground: #EDE5F8;
+  --primary: #DCCE40;
+  --primary-foreground: #0F0822;
+  --secondary: #251B45;
+  --secondary-foreground: #EDE5F8;
+  --muted: #1F1640;
+  --muted-foreground: #A496C2;
+  --accent: #C4AEF4;
+  --accent-foreground: #0F0822;
+  --destructive: #D4707D;
+  --border: rgb(255 255 255 / 8%);
+  --input: rgb(255 255 255 / 12%);
+  --ring: #DCCE40;
+  --chart-1: #C4AEF4;
+  --chart-2: #DCCE40;
+  --chart-3: #A496C2;
+  --chart-4: #C7D7A0;
+  --chart-5: #8869C4;
+  --sidebar: #181030;
+  --sidebar-foreground: #EDE5F8;
+  --sidebar-primary: #DCCE40;
+  --sidebar-primary-foreground: #0F0822;
+  --sidebar-accent: #251B45;
+  --sidebar-accent-foreground: #EDE5F8;
+  --sidebar-border: rgb(255 255 255 / 8%);
+  --sidebar-ring: #DCCE40;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply font-sans;
+    font-feature-settings: "ss01", "cv11";
+    font-size: 16.5px;
+  }
+  body {
+    @apply text-foreground;
+    background-color: var(--background);
+    font-size: 0.9375rem;
+    line-height: 1.55;
+    background-image:
+      radial-gradient(
+        58% 38% at 50% -8%,
+        rgba(196, 174, 244, 0.18),
+        transparent 70%
+      ),
+      radial-gradient(
+        38% 28% at 92% 8%,
+        rgba(220, 206, 64, 0.16),
+        transparent 70%
+      );
+    background-attachment: fixed;
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+  }
+  .dark body {
+    background-image:
+      radial-gradient(
+        58% 38% at 50% -8%,
+        rgba(71, 47, 91, 0.55),
+        transparent 70%
+      ),
+      radial-gradient(
+        38% 28% at 92% 8%,
+        rgba(220, 206, 64, 0.12),
+        transparent 70%
+      );
+  }
+}
+
+/* Editorial display utilities — Fraunces with opsz axis for clean optical sizing */
+.font-display {
+  font-family: var(--font-display);
+  font-weight: 550;
+  letter-spacing: -0.015em;
+  font-variation-settings: "opsz" 96, "SOFT" 30;
+}
+.display-italic {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  font-variation-settings: "opsz" 96, "SOFT" 30;
+}
+
+/* Tracked uppercase eyebrow — small but readable */
+.eyebrow {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+
+/* Inline middot separator for meta strings */
+.dot-sep > * + *::before {
+  content: "·";
+  margin: 0 0.55em;
+  color: var(--muted-foreground);
+  opacity: 0.7;
+}
+
+/* Subtle rule for editorial section dividers */
+.rule {
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    var(--border) 0,
+    var(--border) 80%,
+    transparent 100%
+  );
+}
+
+/* Card lift on hover */
+.lift-on-hover {
+  transition: transform 220ms cubic-bezier(0.2, 0.65, 0.3, 1),
+    box-shadow 220ms ease, border-color 220ms ease;
+}
+.lift-on-hover:hover {
+  transform: translateY(-2px);
+}
+
+/* Accessibility: honor reduce-motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .lift-on-hover:hover {
+    transform: none;
+  }
+}

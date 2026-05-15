@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "JobSourceId" ADD VALUE 'FANTASTIC_JOBS';

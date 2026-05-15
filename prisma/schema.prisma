@@ -1,0 +1,109 @@
+// Job Hunter — single-user AI job search app.
+// Profile and Settings are singletons (one row, id = "singleton").
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum JobSourceId {
+  BA_JOBBOERSE
+  JSEARCH
+  ADZUNA
+  JOBSPY
+  FANTASTIC_JOBS
+  // Legacy values kept so historical rows stay valid; no longer surfaced in the UI.
+  INDEED
+  LINKEDIN
+  STEPSTONE
+  XING
+  GLASSDOOR
+  MONSTER
+}
+
+enum JobStatus {
+  NEW
+  STARRED
+  APPLIED
+  DELETED
+}
+
+enum Seniority {
+  JUNIOR
+  MID
+  SENIOR
+  LEAD
+  UNKNOWN
+}
+
+enum JobType {
+  FULL_TIME
+  PART_TIME
+  CONTRACT
+  FREELANCE
+  INTERNSHIP
+  UNKNOWN
+}
+
+/// Parsed CV profile. Singleton — replaced wholesale on new CV upload.
+model Profile {
+  id              String    @id @default("singleton")
+  fileName        String
+  rawCvText       String
+  summary         String
+  skills          String[]
+  tools           String[]
+  industries      String[]
+  keywords        String[]
+  seniority       Seniority @default(UNKNOWN)
+  yearsExperience Int       @default(0)
+  parsedAt        DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+/// User search preferences. Singleton.
+model Settings {
+  id               String        @id @default("singleton")
+  jobTitles        String[]
+  defaultLocations String[]
+  defaultSeniority Seniority[]
+  defaultJobTypes  JobType[]
+  defaultSources   JobSourceId[]
+  updatedAt        DateTime      @updatedAt
+}
+
+/// A job listing. Deleted jobs keep their row so dedupe permanently excludes them.
+model Job {
+  id          String      @id @default(cuid())
+  source      JobSourceId
+  externalId  String
+  dedupeHash  String      @unique
+  title       String
+  company     String
+  location    String
+  url         String
+  /// Underlying platform an aggregator sourced the job from (e.g. "LinkedIn", "Indeed").
+  publisher   String?
+  description String      @default("")
+  jobType     JobType     @default(UNKNOWN)
+  seniority   Seniority   @default(UNKNOWN)
+  publishedAt DateTime?
+
+  matchScore       Int?
+  matchExplanation String?
+  missingSkills    String[]
+  scoredAt         DateTime?
+
+  status    JobStatus @default(NEW)
+  appliedAt DateTime?
+
+  fetchedAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([source])
+}
