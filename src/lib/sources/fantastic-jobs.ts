@@ -1,4 +1,5 @@
 import type { JobType } from "@/generated/prisma/enums";
+import { getSourceCredentials } from "@/lib/credentials";
 import { inferJobType, inferSeniority } from "@/lib/infer";
 import type { JobSource, RawJob, SearchParams } from "./types";
 
@@ -173,10 +174,13 @@ export const fantasticJobs: JobSource = {
   label: "Fantastic.jobs",
   tier: "primary",
   connected: true,
-  configured: () => Boolean(process.env.FANTASTIC_JOBS_API_KEY),
+  configured: async () => {
+    const c = await getSourceCredentials("FANTASTIC_JOBS");
+    return Boolean(c.apiKey);
+  },
 
   async search(params: SearchParams): Promise<RawJob[]> {
-    const apiKey = process.env.FANTASTIC_JOBS_API_KEY;
+    const { apiKey } = await getSourceCredentials("FANTASTIC_JOBS");
     if (!apiKey) return [];
 
     const titles = params.jobTitles.slice(0, MAX_TITLES);

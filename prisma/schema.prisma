@@ -76,6 +76,15 @@ model Settings {
   updatedAt        DateTime      @updatedAt
 }
 
+/// API credentials per source. Singleton per JobSourceId. Adapters fall back
+/// to process.env when no row exists. UI never reads `secrets` directly — only
+/// a masked tail is exposed over the wire.
+model SourceCredential {
+  sourceId  JobSourceId @id
+  secrets   Json
+  updatedAt DateTime    @updatedAt
+}
+
 /// A job listing. Deleted jobs keep their row so dedupe permanently excludes them.
 model Job {
   id          String      @id @default(cuid())

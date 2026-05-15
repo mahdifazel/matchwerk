@@ -1,4 +1,5 @@
 import type { JobType } from "@/generated/prisma/enums";
+import { getSourceCredentials } from "@/lib/credentials";
 import { inferJobType, inferSeniority } from "@/lib/infer";
 import type { JobSource, RawJob, SearchParams } from "./types";
 
@@ -115,12 +116,13 @@ export const adzuna: JobSource = {
   label: "Adzuna",
   tier: "backup",
   connected: true,
-  configured: () =>
-    Boolean(process.env.ADZUNA_APP_ID && process.env.ADZUNA_APP_KEY),
+  configured: async () => {
+    const c = await getSourceCredentials("ADZUNA");
+    return Boolean(c.appId && c.appKey);
+  },
 
   async search(params: SearchParams): Promise<RawJob[]> {
-    const appId = process.env.ADZUNA_APP_ID;
-    const appKey = process.env.ADZUNA_APP_KEY;
+    const { appId, appKey } = await getSourceCredentials("ADZUNA");
     if (!appId || !appKey) return [];
 
     const titles = params.jobTitles.slice(0, MAX_TITLES);

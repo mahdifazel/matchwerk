@@ -1,8 +1,9 @@
 "use client";
 
-import { Loader2, Plus, X } from "lucide-react";
+import { ChevronDown, Loader2, Plus, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { CredentialEditor } from "@/components/credential-editor";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -14,12 +15,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Toggle } from "@/components/ui/toggle";
-import {
-  JOB_TYPE_OPTIONS,
-  LOCATION_OPTIONS,
-  SENIORITY_OPTIONS,
-  SOURCE_META,
-} from "@/lib/constants";
+import { SOURCE_META } from "@/lib/constants";
+import { EDITABLE_SOURCE_IDS } from "@/lib/credential-schema";
 import type { SettingsDTO } from "@/lib/types";
 import { useSourceStatus } from "@/lib/use-source-status";
 import { cn } from "@/lib/utils";
@@ -34,7 +31,8 @@ export function SettingsForm() {
   const [settings, setSettings] = useState<SettingsDTO | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const sourceStatus = useSourceStatus();
+  const { statuses: sourceStatus, refetch: refetchSourceStatus } =
+    useSourceStatus();
 
   useEffect(() => {
     fetch("/api/settings")
@@ -143,126 +141,111 @@ export function SettingsForm() {
           </Button>
         </section>
 
-        <section className="space-y-2">
-          <h3 className="text-sm font-medium">Locations</h3>
-          <div className="flex flex-wrap gap-2">
-            {LOCATION_OPTIONS.map((l) => (
-              <Toggle
-                key={l.id}
-                size="sm"
-                variant="outline"
-                pressed={settings.defaultLocations.includes(l.id)}
-                onPressedChange={() =>
-                  patch({
-                    defaultLocations: toggleIn(settings.defaultLocations, l.id),
-                  })
-                }
-              >
-                {l.label}
-              </Toggle>
-            ))}
+        <details className="group border-border/70 bg-muted/20 rounded-xl border">
+          <summary className="hover:bg-muted/40 flex cursor-pointer list-none items-center justify-between gap-2 rounded-xl px-4 py-3 transition-colors [&::-webkit-details-marker]:hidden">
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-medium">API credentials</h3>
+              <span className="text-muted-foreground text-[11px] group-open:hidden">
+                Click to expand
+              </span>
+              <span className="text-muted-foreground hidden text-[11px] group-open:inline">
+                Click to collapse
+              </span>
+            </div>
+            <ChevronDown className="text-muted-foreground size-4 transition-transform group-open:rotate-180" />
+          </summary>
+          <div className="border-border/70 space-y-3 border-t px-4 py-4">
+            <p className="text-muted-foreground text-xs">
+              Replace API keys for paid sources without restarting the server.
+              Values saved here override <code>.env.local</code>. Free sources
+              (BA Jobbörse) and JobSpy aren&apos;t listed, they don&apos;t use
+              a remote API key.
+            </p>
+            <div className="space-y-3">
+              {EDITABLE_SOURCE_IDS.map((id) => {
+                const meta = SOURCE_META.find((s) => s.id === id);
+                if (!meta) return null;
+                return (
+                  <CredentialEditor
+                    key={id}
+                    sourceId={id}
+                    sourceLabel={meta.label}
+                    sourceNote={meta.note}
+                    onStatusChange={refetchSourceStatus}
+                  />
+                );
+              })}
+            </div>
           </div>
-        </section>
+        </details>
 
-        <section className="space-y-2">
-          <h3 className="text-sm font-medium">Seniority</h3>
-          <div className="flex flex-wrap gap-2">
-            {SENIORITY_OPTIONS.map((s) => (
-              <Toggle
-                key={s.id}
-                size="sm"
-                variant="outline"
-                pressed={settings.defaultSeniority.includes(s.id)}
-                onPressedChange={() =>
-                  patch({
-                    defaultSeniority: toggleIn(
-                      settings.defaultSeniority,
-                      s.id,
-                    ),
-                  })
-                }
-              >
-                {s.label}
-              </Toggle>
-            ))}
+        <details className="group border-border/70 bg-muted/20 rounded-xl border">
+          <summary className="hover:bg-muted/40 flex cursor-pointer list-none items-center justify-between gap-2 rounded-xl px-4 py-3 transition-colors [&::-webkit-details-marker]:hidden">
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-medium">Sources</h3>
+              <span className="text-muted-foreground text-[11px] group-open:hidden">
+                Click to expand
+              </span>
+              <span className="text-muted-foreground hidden text-[11px] group-open:inline">
+                Click to collapse
+              </span>
+            </div>
+            <ChevronDown className="text-muted-foreground size-4 transition-transform group-open:rotate-180" />
+          </summary>
+          <div className="border-border/70 space-y-3 border-t px-4 py-4">
+            <p className="text-muted-foreground text-xs">
+              JSearch is the primary aggregator; Adzuna is queried as a backup when
+              JSearch is short. Sources without API keys stay inactive, no mock
+              data is ever shown.
+            </p>
+            <div className="space-y-2">
+              {SOURCE_META.map((s) => {
+                const status = sourceStatus.get(s.id);
+                const usable = status
+                  ? status.connected && status.configured
+                  : s.connected;
+                let statusLabel = "";
+                if (!s.connected) statusLabel = "disabled";
+                else if (status && !status.configured) statusLabel = "API key needed";
+                else if (usable) statusLabel = "ready";
+                return (
+                  <div key={s.id} className="flex items-center gap-2">
+                    <Toggle
+                      size="sm"
+                      variant="outline"
+                      pressed={settings.defaultSources.includes(s.id)}
+                      disabled={!usable}
+                      onPressedChange={() =>
+                        patch({
+                          defaultSources: toggleIn(
+                            settings.defaultSources,
+                            s.id,
+                          ),
+                        })
+                      }
+                    >
+                      {s.label}
+                    </Toggle>
+                    <span className="text-muted-foreground text-xs">
+                      {s.note}
+                      {statusLabel && (
+                        <span
+                          className={cn(
+                            "ml-1.5 font-medium",
+                            statusLabel === "ready" && "text-emerald-600 dark:text-emerald-400",
+                            statusLabel === "API key needed" && "text-amber-600 dark:text-amber-400",
+                          )}
+                        >
+                          · {statusLabel}
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
           </div>
-        </section>
-
-        <section className="space-y-2">
-          <h3 className="text-sm font-medium">Job types</h3>
-          <div className="flex flex-wrap gap-2">
-            {JOB_TYPE_OPTIONS.map((t) => (
-              <Toggle
-                key={t.id}
-                size="sm"
-                variant="outline"
-                pressed={settings.defaultJobTypes.includes(t.id)}
-                onPressedChange={() =>
-                  patch({
-                    defaultJobTypes: toggleIn(settings.defaultJobTypes, t.id),
-                  })
-                }
-              >
-                {t.label}
-              </Toggle>
-            ))}
-          </div>
-        </section>
-
-        <section className="space-y-2">
-          <h3 className="text-sm font-medium">Sources</h3>
-          <p className="text-muted-foreground text-xs">
-            JSearch is the primary aggregator; Adzuna is queried as a backup when
-            JSearch is short. Sources without API keys stay inactive — no mock
-            data is ever shown.
-          </p>
-          <div className="space-y-2">
-            {SOURCE_META.map((s) => {
-              const status = sourceStatus.get(s.id);
-              const usable = status
-                ? status.connected && status.configured
-                : s.connected;
-              let statusLabel = "";
-              if (!s.connected) statusLabel = "disabled";
-              else if (status && !status.configured) statusLabel = "API key needed";
-              else if (usable) statusLabel = "ready";
-              return (
-                <div key={s.id} className="flex items-center gap-2">
-                  <Toggle
-                    size="sm"
-                    variant="outline"
-                    pressed={settings.defaultSources.includes(s.id)}
-                    disabled={!usable}
-                    onPressedChange={() =>
-                      patch({
-                        defaultSources: toggleIn(
-                          settings.defaultSources,
-                          s.id,
-                        ),
-                      })
-                    }
-                  >
-                    {s.label}
-                  </Toggle>
-                  <span className="text-muted-foreground text-xs">
-                    {s.note}
-                    {statusLabel && (
-                      <span
-                        className={cn(
-                          "ml-1.5 font-medium",
-                          statusLabel === "ready" && "text-emerald-600 dark:text-emerald-400",
-                          statusLabel === "API key needed" && "text-amber-600 dark:text-amber-400",
-                        )}
-                      >
-                        · {statusLabel}
-                      </span>
-                    )}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </section>
+        </details>
 
         <div className="flex justify-end">
           <Button onClick={save} disabled={saving} className="gap-2">

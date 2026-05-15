@@ -1,7 +1,20 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { extractCvText, parseCvProfile } from "@/lib/cv-parser";
 import { prisma } from "@/lib/prisma";
 import { getProfile, PROFILE_ID } from "@/lib/repo";
+
+const stringList = z.array(z.string().trim().min(1)).max(200);
+
+const patchSchema = z
+  .object({
+    summary: z.string().trim().max(4000).optional(),
+    skills: stringList.optional(),
+    tools: stringList.optional(),
+    industries: stringList.optional(),
+    keywords: stringList.optional(),
+  })
+  .refine((v) => Object.keys(v).length > 0, "No fields to update.");
 
 export async function GET() {
   const profile = await getProfile();
@@ -58,4 +71,35 @@ export async function POST(request: Request) {
       err instanceof Error ? err.message : "Failed to process CV.";
     return NextResponse.json({ error: message }, { status: 500 });
   }
+}
+
+export async function PATCH(request: Request) {
+  const existing = await getProfile();
+  if (!existing) {
+    return NextResponse.json(
+      { error: "Upload a CV before editing the profile." },
+      { status: 400 },
+    );
+  }
+
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
+  }
+
+  const parsed = patchSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: parsed.error.issues[0]?.message ?? "Invalid payload." },
+      { status: 400 },
+    );
+  }
+
+  const profile = await prisma.profile.update({
+    where: { id: PROFILE_ID },
+    data: parsed.data,
+  });
+  return NextResponse.json({ profile });
 }

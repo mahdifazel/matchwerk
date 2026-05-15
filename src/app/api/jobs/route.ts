@@ -10,7 +10,9 @@ import {
   ALL_JOB_TYPES,
   ALL_SENIORITY,
   ALL_SOURCE_IDS,
+  DATE_POSTED_OPTIONS,
   TAB_STATUSES,
+  type DatePostedId,
 } from "@/lib/constants";
 import { prisma } from "@/lib/prisma";
 
@@ -64,6 +66,23 @@ export async function GET(request: Request) {
       }
     }
     if (ors.length > 0) where.OR = ors;
+  }
+
+  const datePostedRaw = searchParams.get("datePosted") as DatePostedId | null;
+  const datePostedOpt = DATE_POSTED_OPTIONS.find((d) => d.id === datePostedRaw);
+  if (datePostedOpt?.days != null) {
+    const cutoff = new Date(Date.now() - datePostedOpt.days * 24 * 60 * 60 * 1000);
+    // Fall back to fetchedAt when the source didn't supply a publishedAt — many
+    // aggregators leave it null and we'd otherwise filter out fresh listings.
+    where.AND = [
+      ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
+      {
+        OR: [
+          { publishedAt: { gte: cutoff } },
+          { publishedAt: null, fetchedAt: { gte: cutoff } },
+        ],
+      },
+    ];
   }
 
   const orderBy: Prisma.JobOrderByWithRelationInput[] =

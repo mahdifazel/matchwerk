@@ -13,6 +13,13 @@ export type ParsedCvProfile = {
   yearsExperience: number;
 };
 
+// PDF extraction can leak C0 control bytes — most importantly null (0x00),
+// which Postgres `text` rejects with "invalid byte sequence for encoding
+// UTF8: 0x00". Strip 0x00–0x08, 0x0B, 0x0C, 0x0E–0x1F; keep \t, \n, \r.
+function sanitize(text: string): string {
+  return text.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "").trim();
+}
+
 /** Extract plain text from an uploaded CV (PDF or DOCX). */
 export async function extractCvText(
   buffer: Buffer,
@@ -22,14 +29,14 @@ export async function extractCvText(
   if (lower.endsWith(".pdf")) {
     const pdf = await getDocumentProxy(new Uint8Array(buffer));
     const { text } = await extractText(pdf, { mergePages: true });
-    return text.trim();
+    return sanitize(text);
   }
   if (lower.endsWith(".docx")) {
     const { value } = await mammoth.extractRawText({ buffer });
-    return value.trim();
+    return sanitize(value);
   }
   if (lower.endsWith(".txt") || lower.endsWith(".md")) {
-    return buffer.toString("utf-8").trim();
+    return sanitize(buffer.toString("utf-8"));
   }
   throw new Error("Unsupported file type. Upload a PDF, DOCX, or TXT file.");
 }

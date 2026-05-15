@@ -148,7 +148,7 @@ export const jobspy: JobSource = {
   label: "JobSpy",
   tier: "fallback",
   connected: true,
-  configured: () => existsSync(VENV_PYTHON) && existsSync(BRIDGE_SCRIPT),
+  configured: async () => existsSync(VENV_PYTHON) && existsSync(BRIDGE_SCRIPT),
 
   async search(params: SearchParams): Promise<RawJob[]> {
     if (!existsSync(VENV_PYTHON) || !existsSync(BRIDGE_SCRIPT)) {

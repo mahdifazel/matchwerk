@@ -16,13 +16,13 @@ export type SourceRunReport = {
 };
 
 /** Why a source can't run right now, or null if it can. */
-function blockedReason(
+async function blockedReason(
   source: JobSource,
   enabled: Set<JobSourceId>,
-): string | null {
+): Promise<string | null> {
   if (!source.connected) return "adapter not implemented";
   if (!enabled.has(source.id)) return "disabled in settings";
-  if (!source.configured()) return "API key not configured";
+  if (!(await source.configured())) return "API key not configured";
   return null;
 }
 
@@ -43,7 +43,7 @@ async function runTier(
   let total = 0;
   await Promise.all(
     sources.map(async (source) => {
-      const reason = blockedReason(source, enabled);
+      const reason = await blockedReason(source, enabled);
       if (reason) {
         reports.push({
           id: source.id,

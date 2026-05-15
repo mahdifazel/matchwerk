@@ -13,7 +13,7 @@ export default function SettingsPage() {
             Settings
           </h1>
           <p className="text-muted-foreground mt-3 max-w-xl text-[0.95rem] leading-relaxed">
-            Your CV and search preferences — set once, reused for every search.
+            Your CV and search preferences, set once, reused for every search.
           </p>
         </header>
         <CvUpload />

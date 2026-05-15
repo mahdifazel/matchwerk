@@ -71,6 +71,26 @@ export type SourceStatusDTO = {
   tier: "primary" | "backup" | "fallback";
   /** Adapter is implemented. */
   connected: boolean;
-  /** Required API keys are present in the environment. */
+  /** Required credentials are present (in DB or env). */
   configured: boolean;
+  /** Whether this source has an in-app credential editor. */
+  editable: boolean;
+  /** Where the active credential comes from. */
+  credentialSource: "db" | "env" | "none";
+};
+
+export type CredentialFieldStatusDTO = {
+  id: string;
+  label: string;
+  secret: boolean;
+  set: boolean;
+  masked: string | null;
+  source: "db" | "env" | "none";
+};
+
+export type CredentialStatusDTO = {
+  source: "db" | "env" | "none";
+  configured: boolean;
+  lastUpdated: string | null;
+  fields: CredentialFieldStatusDTO[];
 };

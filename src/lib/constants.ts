@@ -37,6 +37,16 @@ export const JOB_TYPE_OPTIONS: { id: JobType; label: string }[] = [
   { id: "INTERNSHIP", label: "Internship" },
 ];
 
+export type DatePostedId = "any" | "24h" | "1w" | "2w" | "1m";
+
+export const DATE_POSTED_OPTIONS: { id: DatePostedId; label: string; days: number | null }[] = [
+  { id: "any", label: "Any time", days: null },
+  { id: "24h", label: "Past 24 hours", days: 1 },
+  { id: "1w", label: "Past week", days: 7 },
+  { id: "2w", label: "Past 2 weeks", days: 14 },
+  { id: "1m", label: "Past month", days: 30 },
+];
+
 export type SourceMeta = {
   id: JobSourceId;
   label: string;
@@ -67,7 +77,7 @@ export const SOURCE_META: SourceMeta[] = [
     label: "Fantastic.jobs",
     tier: "primary",
     connected: true,
-    note: "Career-site listings via 54 ATS platforms — refreshed hourly",
+    note: "Career-site listings via 54 ATS platforms, refreshed hourly",
   },
   {
     id: "ADZUNA",

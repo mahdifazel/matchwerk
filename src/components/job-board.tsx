@@ -46,6 +46,7 @@ const ALL_FILTERS: Filters = {
   seniority: [...ALL_SENIORITY],
   jobTypes: [...ALL_JOB_TYPES],
   sources: [...ALL_SOURCE_IDS],
+  datePosted: "any",
 };
 
 type Tab = "new" | "starred" | "applied";
@@ -76,6 +77,7 @@ export function JobBoard() {
       seniority: filters.seniority.join(","),
       jobTypes: filters.jobTypes.join(","),
       sources: filters.sources.join(","),
+      datePosted: filters.datePosted,
     });
     try {
       const res = await fetch(`/api/jobs?${params.toString()}`);
@@ -236,7 +238,7 @@ export function JobBoard() {
         </h1>
         <p className="text-muted-foreground mt-5 max-w-2xl text-[1rem] leading-relaxed">
           One quiet feed. Continuously scanned across BA Jobbörse, JSearch and
-          Adzuna — each listing scored against your CV.
+          Adzuna, each listing scored against your CV.
         </p>
 
         <div className="mt-8 flex flex-wrap items-center gap-x-8 gap-y-5">

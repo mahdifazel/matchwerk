@@ -33,7 +33,7 @@ export interface JobSource {
   tier: SourceTier;
   /** False for sources without a working adapter (e.g. JobSpy). */
   connected: boolean;
-  /** True when the required API keys are present in the environment. */
-  configured(): boolean;
+  /** True when required credentials are present — in the DB or the env fallback. */
+  configured(): Promise<boolean>;
   search(params: SearchParams): Promise<RawJob[]>;
 }

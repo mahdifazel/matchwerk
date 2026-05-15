@@ -1,4 +1,5 @@
 import type { JobType } from "@/generated/prisma/enums";
+import { getSourceCredentials } from "@/lib/credentials";
 import { inferSeniority } from "@/lib/infer";
 import type { JobSource, RawJob, SearchParams } from "./types";
 
@@ -132,10 +133,13 @@ export const jsearch: JobSource = {
   label: "JSearch",
   tier: "primary",
   connected: true,
-  configured: () => Boolean(process.env.JSEARCH_API_KEY),
+  configured: async () => {
+    const c = await getSourceCredentials("JSEARCH");
+    return Boolean(c.apiKey);
+  },
 
   async search(params: SearchParams): Promise<RawJob[]> {
-    const apiKey = process.env.JSEARCH_API_KEY;
+    const { apiKey } = await getSourceCredentials("JSEARCH");
     if (!apiKey) return [];
 
     const titles = params.jobTitles.slice(0, MAX_TITLES);

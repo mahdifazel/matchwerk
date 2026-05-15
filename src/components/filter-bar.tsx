@@ -8,10 +8,14 @@ import {
   DropdownMenuContent,
   DropdownMenuGroup,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
+  DATE_POSTED_OPTIONS,
+  type DatePostedId,
   JOB_TYPE_OPTIONS,
   LOCATION_OPTIONS,
   SENIORITY_OPTIONS,
@@ -24,6 +28,7 @@ export type Filters = {
   seniority: string[];
   jobTypes: string[];
   sources: string[];
+  datePosted: DatePostedId;
 };
 
 type Option = { id: string; label: string; disabled?: boolean; hint?: string };
@@ -86,6 +91,48 @@ function FilterMenu({
   );
 }
 
+function DateFilterMenu({
+  value,
+  onChange,
+}: {
+  value: DatePostedId;
+  onChange: (next: DatePostedId) => void;
+}) {
+  const active = DATE_POSTED_OPTIONS.find((d) => d.id === value);
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={<Button variant="outline" size="sm" className="gap-1.5" />}
+      >
+        Date posted
+        <span className="text-muted-foreground">
+          {active && active.id !== "any" ? active.label : "Any time"}
+        </span>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-52">
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>Date posted</DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          <DropdownMenuRadioGroup
+            value={value}
+            onValueChange={(v) => onChange(v as DatePostedId)}
+          >
+            {DATE_POSTED_OPTIONS.map((o) => (
+              <DropdownMenuRadioItem
+                key={o.id}
+                value={o.id}
+                onSelect={(e) => e.preventDefault()}
+              >
+                {o.label}
+              </DropdownMenuRadioItem>
+            ))}
+          </DropdownMenuRadioGroup>
+        </DropdownMenuGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 export function FilterBar({
   filters,
   onChange,
@@ -95,7 +142,7 @@ export function FilterBar({
   onChange: (next: Filters) => void;
   onReset: () => void;
 }) {
-  const sourceStatus = useSourceStatus();
+  const { statuses: sourceStatus } = useSourceStatus();
 
   const sourceOptions: Option[] = SOURCE_META.map((s) => {
     const status = sourceStatus.get(s.id);
@@ -135,6 +182,10 @@ export function FilterBar({
         options={sourceOptions}
         selected={filters.sources}
         onChange={(sources) => onChange({ ...filters, sources })}
+      />
+      <DateFilterMenu
+        value={filters.datePosted}
+        onChange={(datePosted) => onChange({ ...filters, datePosted })}
       />
 
       <Button

@@ -132,7 +132,7 @@ export const baJobboerse: JobSource = {
   label: "BA Jobbörse",
   tier: "primary",
   connected: true,
-  configured: () => true, // public API, no key required
+  configured: async () => true, // public API, no key required
 
   async search(params: SearchParams): Promise<RawJob[]> {
     const titles = params.jobTitles.slice(0, MAX_TITLES);
