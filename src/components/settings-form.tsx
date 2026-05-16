@@ -1,7 +1,7 @@
 "use client";
 
 import { ChevronDown, Loader2, Plus, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { CredentialEditor } from "@/components/credential-editor";
 import { Button } from "@/components/ui/button";
@@ -34,13 +34,32 @@ export function SettingsForm() {
   const { statuses: sourceStatus, refetch: refetchSourceStatus } =
     useSourceStatus();
 
-  useEffect(() => {
-    fetch("/api/settings")
-      .then((r) => r.json())
-      .then((d) => setSettings(d.settings))
-      .catch(() => toast.error("Could not load settings."))
-      .finally(() => setLoading(false));
+  const loadSettings = useCallback(async () => {
+    try {
+      const res = await fetch("/api/settings");
+      const data = await res.json();
+      setSettings(data.settings);
+    } catch {
+      toast.error("Could not load settings.");
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadSettings();
+  }, [loadSettings]);
+
+  // CV upload auto-fills jobTitles with the 3 model-suggested titles — reload
+  // the form so the user sees the updated values immediately.
+  useEffect(() => {
+    function onCvUpdated() {
+      loadSettings();
+    }
+    window.addEventListener("cv-updated", onCvUpdated);
+    return () => window.removeEventListener("cv-updated", onCvUpdated);
+  }, [loadSettings]);
 
   function patch(next: Partial<SettingsDTO>) {
     setSettings((prev) => (prev ? { ...prev, ...next } : prev));
@@ -74,6 +93,7 @@ export function SettingsForm() {
         return;
       }
       setSettings(data.settings);
+      window.dispatchEvent(new Event("settings-updated"));
       toast.success("Settings saved.");
     } catch {
       toast.error("Could not save settings.");

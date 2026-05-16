@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import type { Prisma } from "@/generated/prisma/client";
-import { LOCATION_OPTIONS } from "@/lib/constants";
+import {
+  ALL_JOB_TYPES,
+  ALL_SENIORITY,
+  LOCATION_OPTIONS,
+} from "@/lib/constants";
 import { scoreJobs } from "@/lib/matcher";
 import { prisma } from "@/lib/prisma";
 import { getProfile, getSettings } from "@/lib/repo";
@@ -68,14 +72,48 @@ async function runRefresh() {
     );
   }
 
+  // 3c. Personalize: drop jobs that contradict the user's seniority/jobType
+  // preferences in Settings (defensive narrow rule — UNKNOWN always passes so
+  // weak classification doesn't silently hide real listings).
+  const narrowSeniority =
+    settings.defaultSeniority.length > 0 &&
+    settings.defaultSeniority.length < ALL_SENIORITY.length;
+  const narrowJobTypes =
+    settings.defaultJobTypes.length > 0 &&
+    settings.defaultJobTypes.length < ALL_JOB_TYPES.length;
+  if (narrowSeniority || narrowJobTypes) {
+    fresh = fresh.filter((j) => {
+      if (
+        narrowSeniority &&
+        j.seniority !== "UNKNOWN" &&
+        !settings.defaultSeniority.includes(j.seniority)
+      ) {
+        return false;
+      }
+      if (
+        narrowJobTypes &&
+        j.jobType !== "UNKNOWN" &&
+        !settings.defaultJobTypes.includes(j.jobType)
+      ) {
+        return false;
+      }
+      return true;
+    });
+  }
+
   if (fresh.length === 0) {
     return NextResponse.json({ added: 0, scanned, reports });
   }
 
-  // 4. Score the new jobs against the CV profile.
+  // 4. Score the new jobs against the CV profile + user preferences.
   const scores = await scoreJobs(
     profile,
     settings.jobTitles,
+    {
+      preferredSeniority: settings.defaultSeniority,
+      preferredJobTypes: settings.defaultJobTypes,
+      preferredLocations: settings.defaultLocations,
+    },
     fresh.map((j) => ({
       id: j.dedupeHash,
       title: j.title,

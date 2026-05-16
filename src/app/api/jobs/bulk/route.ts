@@ -3,7 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 
 const bulkSchema = z.object({
-  action: z.enum(["delete"]),
+  action: z.enum(["delete", "unapply"]),
   ids: z.array(z.string()).min(1).max(500),
 });
 
@@ -17,7 +17,17 @@ export async function POST(request: Request) {
     );
   }
 
-  // Only "delete" for now — sets DELETED so the jobs stay excluded on refresh.
+  if (parsed.data.action === "unapply") {
+    // Move APPLIED jobs back to NEW. Only acts on currently-APPLIED rows so a
+    // mistargeted bulk call can't reset star/new jobs.
+    const result = await prisma.job.updateMany({
+      where: { id: { in: parsed.data.ids }, status: "APPLIED" },
+      data: { status: "NEW", appliedAt: null },
+    });
+    return NextResponse.json({ count: result.count });
+  }
+
+  // "delete" — sets DELETED so the jobs stay excluded on refresh.
   const result = await prisma.job.updateMany({
     where: { id: { in: parsed.data.ids } },
     data: { status: "DELETED" },

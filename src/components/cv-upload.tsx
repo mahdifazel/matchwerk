@@ -173,7 +173,24 @@ export function CvUpload() {
       }
       setProfile(data.profile);
       setDraft(profileToDraft(data.profile));
-      toast.success("CV parsed — profile updated.");
+      window.dispatchEvent(new Event("cv-updated"));
+      const suggested: string[] = data.suggestedJobTitles ?? [];
+      const cleared: number = data.clearedJobs ?? 0;
+      const descriptionLines: string[] = [];
+      if (suggested.length > 0) {
+        descriptionLines.push(`Suggested titles: ${suggested.join(", ")}`);
+      }
+      if (cleared > 0) {
+        descriptionLines.push(
+          `Cleared ${cleared} previous match${cleared === 1 ? "" : "es"}. Hit Refresh on the board to score against the new CV.`,
+        );
+      }
+      toast.success(
+        "CV parsed — profile updated.",
+        descriptionLines.length > 0
+          ? { description: descriptionLines.join(" · ") }
+          : undefined,
+      );
     } catch {
       toast.error("Upload failed.");
     } finally {

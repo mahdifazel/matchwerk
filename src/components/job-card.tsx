@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUpRight, Check, Star, Trash2 } from "lucide-react";
+import { ArrowUpRight, Check, Star, Trash2, Undo2 } from "lucide-react";
 import { ScoreMeter } from "@/components/match-badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -8,7 +8,7 @@ import { SOURCE_META } from "@/lib/constants";
 import type { JobDTO } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-export type JobAction = "star" | "unstar" | "apply" | "delete";
+export type JobAction = "star" | "unstar" | "apply" | "unapply" | "delete";
 
 const SOURCE_LABEL = new Map(SOURCE_META.map((s) => [s.id, s.label]));
 
@@ -156,12 +156,24 @@ export function JobCard({
               size="sm"
               variant="ghost"
               className="text-muted-foreground hover:text-foreground h-8 gap-1.5 px-2"
-              aria-label="Hide"
+              aria-label="Don't show this job again"
               onClick={() => onAction(job.id, "delete")}
             >
               <Trash2 className="size-3.5" />
-              <span className="text-[0.85rem]">Hide</span>
+              <span className="text-[0.85rem]">Don&apos;t Show Again</span>
             </Button>
+            {isApplied && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="text-muted-foreground hover:text-foreground h-8 gap-1.5 px-2"
+                aria-label="Move this job back to the Inbox"
+                onClick={() => onAction(job.id, "unapply")}
+              >
+                <Undo2 className="size-3.5" />
+                <span className="text-[0.85rem]">Back to Inbox</span>
+              </Button>
+            )}
           </div>
 
           <Button

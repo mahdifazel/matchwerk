@@ -1,4 +1,5 @@
 import type { Profile } from "@/generated/prisma/client";
+import type { JobType, Seniority } from "@/generated/prisma/enums";
 import { getAnthropic, MODELS } from "./anthropic";
 
 export type JobToScore = {
@@ -6,6 +7,15 @@ export type JobToScore = {
   title: string;
   company: string;
   location: string;
+};
+
+export type ScoringPreferences = {
+  /** Seniority levels the user opted into in Settings. */
+  preferredSeniority: Seniority[];
+  /** Job types the user opted into in Settings. */
+  preferredJobTypes: JobType[];
+  /** Location IDs the user opted into in Settings (e.g. "berlin", "remote"). */
+  preferredLocations: string[];
 };
 
 export type JobScore = {
@@ -52,11 +62,21 @@ const SCORE_TOOL = {
   },
 };
 
-function buildSystemPrompt(profile: Profile, jobTitles: string[]): string {
-  return [
-    "You are a job-matching engine for a Product Designer searching in Germany.",
+function buildSystemPrompt(
+  profile: Profile,
+  jobTitles: string[],
+  prefs: ScoringPreferences,
+): string {
+  // Derive the candidate's professional identity from the CV + their chosen
+  // titles. Never hardcode a profession here — the matcher must follow the
+  // current profile so swapping a CV for a different role retargets scoring.
+  const primaryRole = jobTitles[0] ?? "the role above";
+  const lines: string[] = [
+    `You are a job-matching engine for a ${primaryRole} searching in Germany.`,
+    "The candidate's profession is whatever their CV profile says it is — do not assume any specific industry or role beyond what's described below.",
     "Score how well each job fits the candidate on a 0-100 scale, where 100 is a perfect fit.",
-    "Weigh: title/role alignment with the target titles, seniority fit, skill and tool overlap, and industry relevance.",
+    "Weigh: title/role alignment with the target titles, seniority fit, skill and tool overlap, industry relevance, and explicit user preferences below.",
+    "Penalize jobs that are in an unrelated profession from the candidate's CV, even if some surface keywords match.",
     "Be discerning — most jobs should land in the 40-85 range; reserve 90+ for genuinely strong fits.",
     "",
     "=== TARGET JOB TITLES ===",
@@ -70,12 +90,33 @@ function buildSystemPrompt(profile: Profile, jobTitles: string[]): string {
     `Tools: ${profile.tools.join(", ")}`,
     `Industries: ${profile.industries.join(", ")}`,
     `Keywords: ${profile.keywords.join(", ")}`,
-  ].join("\n");
+  ];
+  if (
+    prefs.preferredSeniority.length > 0 ||
+    prefs.preferredJobTypes.length > 0 ||
+    prefs.preferredLocations.length > 0
+  ) {
+    lines.push("", "=== USER PREFERENCES (from Settings) ===");
+    if (prefs.preferredSeniority.length > 0) {
+      lines.push(`Open to seniority: ${prefs.preferredSeniority.join(", ")}`);
+    }
+    if (prefs.preferredJobTypes.length > 0) {
+      lines.push(`Open to job types: ${prefs.preferredJobTypes.join(", ")}`);
+    }
+    if (prefs.preferredLocations.length > 0) {
+      lines.push(`Preferred locations: ${prefs.preferredLocations.join(", ")}`);
+    }
+    lines.push(
+      "Penalize jobs that contradict these preferences; reward jobs that fit them.",
+    );
+  }
+  return lines.join("\n");
 }
 
 async function scoreBatch(
   profile: Profile,
   jobTitles: string[],
+  prefs: ScoringPreferences,
   batch: JobToScore[],
 ): Promise<Map<string, JobScore>> {
   const anthropic = getAnthropic();
@@ -85,7 +126,7 @@ async function scoreBatch(
     system: [
       {
         type: "text",
-        text: buildSystemPrompt(profile, jobTitles),
+        text: buildSystemPrompt(profile, jobTitles, prefs),
         cache_control: { type: "ephemeral" },
       },
     ],
@@ -126,16 +167,17 @@ async function scoreBatch(
   return result;
 }
 
-/** Score every job against the CV profile. Batches requests to keep calls small. */
+/** Score every job against the CV profile and the user's settings preferences. */
 export async function scoreJobs(
   profile: Profile,
   jobTitles: string[],
+  prefs: ScoringPreferences,
   jobs: JobToScore[],
 ): Promise<Map<string, JobScore>> {
   const scores = new Map<string, JobScore>();
   for (let i = 0; i < jobs.length; i += BATCH_SIZE) {
     const batch = jobs.slice(i, i + BATCH_SIZE);
-    const batchScores = await scoreBatch(profile, jobTitles, batch);
+    const batchScores = await scoreBatch(profile, jobTitles, prefs, batch);
     for (const [id, score] of batchScores) scores.set(id, score);
   }
   return scores;

@@ -25,7 +25,6 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -36,7 +35,7 @@ import {
   ALL_SOURCE_IDS,
   SOURCE_META,
 } from "@/lib/constants";
-import type { JobDTO, RefreshResult } from "@/lib/types";
+import type { JobDTO, RefreshResult, SettingsDTO } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const SOURCE_LABEL = new Map(SOURCE_META.map((s) => [s.id, s.label]));
@@ -49,25 +48,26 @@ const ALL_FILTERS: Filters = {
   datePosted: "any",
 };
 
-type Tab = "new" | "starred" | "applied";
+type Tab = "inbox" | "starred" | "applied";
 
 const TABS: { id: Tab; label: string; icon: typeof Inbox }[] = [
-  { id: "new", label: "New", icon: Inbox },
+  { id: "inbox", label: "Inbox", icon: Inbox },
   { id: "starred", label: "Starred", icon: Star },
   { id: "applied", label: "Applied", icon: Briefcase },
 ];
 
 export function JobBoard() {
-  const [tab, setTab] = useState<Tab>("new");
+  const [tab, setTab] = useState<Tab>("inbox");
   const [filters, setFilters] = useState<Filters>(ALL_FILTERS);
   const [jobs, setJobs] = useState<JobDTO[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [pending, setPending] = useState<Set<string>>(new Set());
   const [hasProfile, setHasProfile] = useState<boolean | null>(null);
-  const [clearing, setClearing] = useState(false);
-  const [clearOpen, setClearOpen] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
+  const [heroTitle, setHeroTitle] = useState<string>("Product Design");
+  const [unapplyOpen, setUnapplyOpen] = useState(false);
+  const [unapplying, setUnapplying] = useState(false);
 
   const fetchJobs = useCallback(async () => {
     setLoading(true);
@@ -100,6 +100,37 @@ export function JobBoard() {
       .then((r) => r.json())
       .then((d) => setHasProfile(Boolean(d.profile)))
       .catch(() => setHasProfile(false));
+  }, []);
+
+  // A new CV deletes all NEW jobs server-side; if the board is open in the
+  // same tab, drop the visible list immediately so the user sees a clean slate.
+  useEffect(() => {
+    function onCvUpdated() {
+      setJobs([]);
+    }
+    window.addEventListener("cv-updated", onCvUpdated);
+    return () => window.removeEventListener("cv-updated", onCvUpdated);
+  }, []);
+
+  useEffect(() => {
+    function loadHeroTitle() {
+      fetch("/api/settings")
+        .then((r) => r.json())
+        .then((d: { settings: SettingsDTO | null }) => {
+          const first = d.settings?.jobTitles?.[0]?.trim();
+          if (first) setHeroTitle(first);
+        })
+        .catch(() => {
+          // Keep the default hero title; failure is non-blocking.
+        });
+    }
+    loadHeroTitle();
+    window.addEventListener("cv-updated", loadHeroTitle);
+    window.addEventListener("settings-updated", loadHeroTitle);
+    return () => {
+      window.removeEventListener("cv-updated", loadHeroTitle);
+      window.removeEventListener("settings-updated", loadHeroTitle);
+    };
   }, []);
 
   const handleRefresh = useCallback(async () => {
@@ -148,9 +179,10 @@ export function JobBoard() {
         setJobs((prev) => prev.filter((j) => j.id !== id));
         const messages: Record<JobAction, string> = {
           star: "Starred.",
-          unstar: "Moved back to New.",
+          unstar: "Moved back to Inbox.",
           apply: "Marked as applied.",
-          delete: "Hidden — won't show again.",
+          unapply: "Moved back to Inbox.",
+          delete: "Hidden, won't show again.",
         };
         toast.success(messages[action]);
       } catch {
@@ -166,30 +198,45 @@ export function JobBoard() {
     [],
   );
 
-  const handleClearList = useCallback(async () => {
+  const handleClearList = useCallback(() => {
+    if (jobs.length === 0) return;
+    // On the Applied tab, Clear List moves jobs back to Inbox (needs confirmation).
+    // Other tabs: non-destructive view-only clear.
+    if (tab === "applied") {
+      setUnapplyOpen(true);
+      return;
+    }
+    const cleared = jobs.length;
+    setJobs([]);
+    toast.success(
+      `Cleared ${cleared} job${cleared === 1 ? "" : "s"} from view. They'll come back on the next refresh or tab switch.`,
+    );
+  }, [jobs, tab]);
+
+  const handleBulkUnapply = useCallback(async () => {
     const ids = jobs.map((j) => j.id);
     if (ids.length === 0) return;
-    setClearing(true);
+    setUnapplying(true);
     try {
       const res = await fetch("/api/jobs/bulk", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "delete", ids }),
+        body: JSON.stringify({ action: "unapply", ids }),
       });
       const data = await res.json();
       if (!res.ok) {
-        toast.error(data.error ?? "Could not clear the list.");
+        toast.error(data.error ?? "Could not move jobs back.");
         return;
       }
       setJobs([]);
-      setClearOpen(false);
+      setUnapplyOpen(false);
       toast.success(
-        `Cleared ${data.count} job${data.count === 1 ? "" : "s"} — they won't show again.`,
+        `Moved ${data.count} job${data.count === 1 ? "" : "s"} back to Inbox.`,
       );
     } catch {
-      toast.error("Could not clear the list.");
+      toast.error("Could not move jobs back.");
     } finally {
-      setClearing(false);
+      setUnapplying(false);
     }
   }, [jobs]);
 
@@ -197,16 +244,16 @@ export function JobBoard() {
     Tab,
     { icon: typeof Inbox; title: string; description: string }
   > = {
-    new: {
+    inbox: {
       icon: Inbox,
-      title: "No matching jobs yet",
+      title: "Your inbox is empty",
       description:
         "Hit Research jobs to pull fresh listings and score them against your CV.",
     },
     starred: {
       icon: Star,
       title: "Nothing starred",
-      description: "Star jobs from New to keep them here.",
+      description: "Star jobs from your Inbox to keep them here.",
     },
     applied: {
       icon: Briefcase,
@@ -232,7 +279,7 @@ export function JobBoard() {
       <section className="pt-6 sm:pt-10">
         <p className="eyebrow mb-5">AI-matched · Germany · 2026</p>
         <h1 className="font-display text-[2.25rem] leading-[1.1] tracking-tight sm:text-[3rem]">
-          Product Design jobs,
+          {heroTitle} jobs,
           <br className="hidden sm:block" />
           <span className="text-foreground/85"> ranked for you.</span>
         </h1>
@@ -321,48 +368,44 @@ export function JobBoard() {
               {showFilters ? "Hide filters" : "Filters"}
             </Button>
             {!loading && jobs.length > 0 && (
-              <AlertDialog open={clearOpen} onOpenChange={setClearOpen}>
-                <AlertDialogTrigger
-                  render={
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-muted-foreground gap-1.5"
-                    />
-                  }
-                >
-                  <Trash2 className="size-3.5" />
-                  Clear
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Clear this list?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      This hides all {jobs.length} job
-                      {jobs.length === 1 ? "" : "s"} currently shown. Deleted
-                      jobs won&apos;t appear again, even after a refresh.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel disabled={clearing}>
-                      Cancel
-                    </AlertDialogCancel>
-                    <AlertDialogAction
-                      variant="destructive"
-                      disabled={clearing}
-                      onClick={(e) => {
-                        e.preventDefault();
-                        handleClearList();
-                      }}
-                    >
-                      {clearing ? "Clearing…" : "Clear list"}
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-muted-foreground gap-1.5"
+                onClick={handleClearList}
+              >
+                <Trash2 className="size-3.5" />
+                Clear List
+              </Button>
             )}
           </div>
         </div>
+
+        <AlertDialog open={unapplyOpen} onOpenChange={setUnapplyOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Move applied jobs back to Inbox?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This moves all {jobs.length} job
+                {jobs.length === 1 ? "" : "s"} on the Applied tab back to your
+                Inbox and clears their applied date. You can re-apply at any
+                time.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={unapplying}>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                disabled={unapplying}
+                onClick={(e) => {
+                  e.preventDefault();
+                  handleBulkUnapply();
+                }}
+              >
+                {unapplying ? "Moving…" : "Move to Inbox"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
         {showFilters && (
           <div className="border-border/70 bg-card/40 rounded-2xl border p-4 mt-4 ring-1 ring-foreground/[0.03]">
@@ -399,7 +442,7 @@ export function JobBoard() {
             title={emptyByTab[tab].title}
             description={emptyByTab[tab].description}
             action={
-              tab === "new" ? (
+              tab === "inbox" ? (
                 <RefreshButton refreshing={refreshing} onClick={handleRefresh} />
               ) : undefined
             }

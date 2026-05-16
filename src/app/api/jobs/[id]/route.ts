@@ -4,7 +4,7 @@ import type { JobStatus } from "@/generated/prisma/enums";
 import { prisma } from "@/lib/prisma";
 
 const patchSchema = z.object({
-  action: z.enum(["star", "unstar", "apply", "delete"]),
+  action: z.enum(["star", "unstar", "apply", "unapply", "delete"]),
 });
 
 export async function PATCH(
@@ -34,6 +34,8 @@ export async function PATCH(
         return { status: "NEW" };
       case "apply":
         return { status: "APPLIED", appliedAt: new Date() };
+      case "unapply":
+        return { status: "NEW", appliedAt: null };
       case "delete":
         return { status: "DELETED" };
     }

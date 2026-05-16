@@ -11,6 +11,8 @@ export type ParsedCvProfile = {
   keywords: string[];
   seniority: Seniority;
   yearsExperience: number;
+  /** Exactly 3 role titles tailored to the candidate — used to pre-fill Settings.jobTitles. */
+  suggestedJobTitles: string[];
 };
 
 // PDF extraction can leak C0 control bytes — most importantly null (0x00),
@@ -84,6 +86,14 @@ const CV_TOOL = {
         type: "integer",
         description: "Total years of professional experience (best estimate).",
       },
+      suggestedJobTitles: {
+        type: "array",
+        items: { type: "string" },
+        minItems: 3,
+        maxItems: 3,
+        description:
+          "Exactly 3 job titles this candidate should search for, ordered by best fit. Use concrete, searchable titles employers actually post (e.g. 'Senior Product Designer', 'UX Designer', 'Product Designer'), not category labels. Reflect the candidate's actual seniority and specialization, not generic catch-alls.",
+      },
     },
     required: [
       "summary",
@@ -93,6 +103,7 @@ const CV_TOOL = {
       "keywords",
       "seniority",
       "yearsExperience",
+      "suggestedJobTitles",
     ],
   },
 };
@@ -125,6 +136,10 @@ export async function parseCvProfile(
     throw new Error("CV parsing failed: model did not return structured data.");
   }
   const input = block.input as Partial<ParsedCvProfile>;
+  const titles = (input.suggestedJobTitles ?? [])
+    .map((t) => (typeof t === "string" ? t.trim() : ""))
+    .filter(Boolean)
+    .slice(0, 3);
   return {
     summary: input.summary ?? "",
     skills: input.skills ?? [],
@@ -133,5 +148,6 @@ export async function parseCvProfile(
     keywords: input.keywords ?? [],
     seniority: input.seniority ?? "UNKNOWN",
     yearsExperience: input.yearsExperience ?? 0,
+    suggestedJobTitles: titles,
   };
 }

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { extractCvText, parseCvProfile } from "@/lib/cv-parser";
 import { prisma } from "@/lib/prisma";
-import { getProfile, PROFILE_ID } from "@/lib/repo";
+import { getProfile, getSettings, PROFILE_ID, SETTINGS_ID } from "@/lib/repo";
 
 const stringList = z.array(z.string().trim().min(1)).max(200);
 
@@ -46,7 +46,7 @@ export async function POST(request: Request) {
   try {
     const buffer = Buffer.from(await file.arrayBuffer());
     const rawText = await extractCvText(buffer, file.name);
-    const parsed = await parseCvProfile(rawText);
+    const { suggestedJobTitles, ...profileFields } = await parseCvProfile(rawText);
 
     const profile = await prisma.profile.upsert({
       where: { id: PROFILE_ID },
@@ -54,18 +54,38 @@ export async function POST(request: Request) {
         id: PROFILE_ID,
         fileName: file.name,
         rawCvText: rawText,
-        ...parsed,
+        ...profileFields,
         parsedAt: new Date(),
       },
       update: {
         fileName: file.name,
         rawCvText: rawText,
-        ...parsed,
+        ...profileFields,
         parsedAt: new Date(),
       },
     });
 
-    return NextResponse.json({ profile });
+    // Auto-personalize Settings: the 3 model-suggested titles overwrite
+    // whatever was there. The user can still edit them in Settings.
+    if (suggestedJobTitles.length > 0) {
+      await getSettings(); // ensure the singleton exists before update
+      await prisma.settings.update({
+        where: { id: SETTINGS_ID },
+        data: { jobTitles: suggestedJobTitles },
+      });
+    }
+
+    // A new CV may represent a completely different profession. Drop every
+    // NEW job so the board doesn't show stale matches from the previous
+    // profile. STARRED and APPLIED rows are preserved — the user might have
+    // already acted on those and shouldn't lose that history.
+    const cleared = await prisma.job.deleteMany({ where: { status: "NEW" } });
+
+    return NextResponse.json({
+      profile,
+      suggestedJobTitles,
+      clearedJobs: cleared.count,
+    });
   } catch (err) {
     const message =
       err instanceof Error ? err.message : "Failed to process CV.";

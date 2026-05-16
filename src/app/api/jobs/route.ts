@@ -34,7 +34,7 @@ function csv(value: string | null): string[] {
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
 
-  const tab = searchParams.get("tab") ?? "new";
+  const tab = searchParams.get("tab") ?? "inbox";
   const status: JobStatus = TAB_STATUSES[tab] ?? "NEW";
 
   const sources = csv(searchParams.get("sources")) as JobSourceId[];

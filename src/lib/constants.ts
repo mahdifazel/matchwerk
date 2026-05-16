@@ -101,7 +101,7 @@ export const ALL_JOB_TYPES: JobType[] = JOB_TYPE_OPTIONS.map((t) => t.id);
 export const ALL_LOCATION_IDS: string[] = LOCATION_OPTIONS.map((l) => l.id);
 
 export const TAB_STATUSES: Record<string, JobStatus> = {
-  new: "NEW",
+  inbox: "NEW",
   starred: "STARRED",
   applied: "APPLIED",
 };
