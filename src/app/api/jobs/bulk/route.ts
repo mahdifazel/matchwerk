@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
+import { getSessionUserId } from "@/lib/repo";
 
 const bulkSchema = z.object({
   action: z.enum(["delete", "unapply"]),
@@ -8,6 +9,11 @@ const bulkSchema = z.object({
 });
 
 export async function POST(request: Request) {
+  const userId = await getSessionUserId();
+  if (!userId) {
+    return NextResponse.json({ error: "Sign in to continue." }, { status: 401 });
+  }
+
   const body = await request.json().catch(() => null);
   const parsed = bulkSchema.safeParse(body);
   if (!parsed.success) {
@@ -18,10 +24,10 @@ export async function POST(request: Request) {
   }
 
   if (parsed.data.action === "unapply") {
-    // Move APPLIED jobs back to NEW. Only acts on currently-APPLIED rows so a
-    // mistargeted bulk call can't reset star/new jobs.
+    // Move APPLIED jobs back to NEW. Only acts on the caller's currently-APPLIED
+    // rows so a mistargeted bulk call can't reset star/new jobs.
     const result = await prisma.job.updateMany({
-      where: { id: { in: parsed.data.ids }, status: "APPLIED" },
+      where: { userId, id: { in: parsed.data.ids }, status: "APPLIED" },
       data: { status: "NEW", appliedAt: null },
     });
     return NextResponse.json({ count: result.count });
@@ -29,7 +35,7 @@ export async function POST(request: Request) {
 
   // "delete" — sets DELETED so the jobs stay excluded on refresh.
   const result = await prisma.job.updateMany({
-    where: { id: { in: parsed.data.ids } },
+    where: { userId, id: { in: parsed.data.ids } },
     data: { status: "DELETED" },
   });
 

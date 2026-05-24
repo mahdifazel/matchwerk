@@ -133,13 +133,13 @@ export const jsearch: JobSource = {
   label: "JSearch",
   tier: "primary",
   connected: true,
-  configured: async () => {
-    const c = await getSourceCredentials("JSEARCH");
+  configured: async (userId) => {
+    const c = await getSourceCredentials(userId, "JSEARCH");
     return Boolean(c.apiKey);
   },
 
   async search(params: SearchParams): Promise<RawJob[]> {
-    const { apiKey } = await getSourceCredentials("JSEARCH");
+    const { apiKey } = await getSourceCredentials(params.userId, "JSEARCH");
     if (!apiKey) return [];
 
     const titles = params.jobTitles.slice(0, MAX_TITLES);

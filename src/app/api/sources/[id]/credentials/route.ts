@@ -9,12 +9,17 @@ import {
   setCredential,
   SOURCE_CREDENTIAL_SCHEMA,
 } from "@/lib/credentials";
+import { getSessionUserId } from "@/lib/repo";
 
 function parseSourceId(raw: string): JobSourceId | null {
   if ((ALL_SOURCE_IDS as readonly string[]).includes(raw)) {
     return raw as JobSourceId;
   }
   return null;
+}
+
+function unauthorized() {
+  return NextResponse.json({ error: "Sign in to continue." }, { status: 401 });
 }
 
 function notEditableResponse() {
@@ -28,13 +33,16 @@ export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const userId = await getSessionUserId();
+  if (!userId) return unauthorized();
+
   const { id } = await params;
   const sourceId = parseSourceId(id);
   if (!sourceId) {
     return NextResponse.json({ error: "Unknown source." }, { status: 404 });
   }
   if (!hasCredentialEditor(sourceId)) return notEditableResponse();
-  const status = await getCredentialStatus(sourceId);
+  const status = await getCredentialStatus(userId, sourceId);
   return NextResponse.json({ status });
 }
 
@@ -42,6 +50,9 @@ export async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const userId = await getSessionUserId();
+  if (!userId) return unauthorized();
+
   const { id } = await params;
   const sourceId = parseSourceId(id);
   if (!sourceId) {
@@ -71,8 +82,8 @@ export async function PUT(
     );
   }
 
-  const { updatedAt } = await setCredential(sourceId, values);
-  const status = await getCredentialStatus(sourceId);
+  const { updatedAt } = await setCredential(userId, sourceId, values);
+  const status = await getCredentialStatus(userId, sourceId);
   return NextResponse.json({ ok: true, updatedAt, status });
 }
 
@@ -80,6 +91,9 @@ export async function DELETE(
   _request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const userId = await getSessionUserId();
+  if (!userId) return unauthorized();
+
   const { id } = await params;
   const sourceId = parseSourceId(id);
   if (!sourceId) {
@@ -87,7 +101,7 @@ export async function DELETE(
   }
   if (!hasCredentialEditor(sourceId)) return notEditableResponse();
 
-  await clearCredential(sourceId);
-  const status = await getCredentialStatus(sourceId);
+  await clearCredential(userId, sourceId);
+  const status = await getCredentialStatus(userId, sourceId);
   return NextResponse.json({ ok: true, status });
 }

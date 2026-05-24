@@ -17,15 +17,18 @@ export type {
 
 export type CredentialSource = "db" | "env" | "none";
 
-// Process-singleton cache, invalidated on set/clear. Single-user app — no
-// cross-instance invalidation needed.
-const cache = new Map<JobSourceId, Record<string, string>>();
+// Process cache, keyed by `${userId}:${sourceId}`, invalidated on set/clear.
+const cache = new Map<string, Record<string, string>>();
+
+const cacheKey = (userId: string, sourceId: JobSourceId) =>
+  `${userId}:${sourceId}`;
 
 async function loadFromDb(
+  userId: string,
   sourceId: JobSourceId,
 ): Promise<{ secrets: Record<string, string>; updatedAt: Date } | null> {
   const row = await prisma.sourceCredential.findUnique({
-    where: { sourceId },
+    where: { userId_sourceId: { userId, sourceId } },
   });
   if (!row) return null;
   const secrets = (row.secrets ?? {}) as Record<string, string>;
@@ -34,9 +37,11 @@ async function loadFromDb(
 
 /**
  * Resolved value for a single field, DB-first, env fallback.
- * Returns undefined when neither has a non-empty value.
+ * Returns undefined when neither has a non-empty value. The env fallback is a
+ * shared default (the operator's keys) available to any user without a DB row.
  */
 export async function getCredential(
+  userId: string,
   sourceId: JobSourceId,
   fieldId: string,
 ): Promise<string | undefined> {
@@ -45,16 +50,17 @@ export async function getCredential(
   const field = schema.fields.find((f) => f.id === fieldId);
   if (!field) return undefined;
 
-  const fromCache = cache.get(sourceId);
+  const key = cacheKey(userId, sourceId);
+  const fromCache = cache.get(key);
   if (fromCache && fromCache[fieldId]) return fromCache[fieldId];
 
   if (!fromCache) {
-    const row = await loadFromDb(sourceId);
+    const row = await loadFromDb(userId, sourceId);
     if (row) {
-      cache.set(sourceId, row.secrets);
+      cache.set(key, row.secrets);
       if (row.secrets[fieldId]) return row.secrets[fieldId];
     } else {
-      cache.set(sourceId, {});
+      cache.set(key, {});
     }
   }
 
@@ -64,19 +70,21 @@ export async function getCredential(
 
 /** All fields for an adapter to consume. Missing fields are simply absent. */
 export async function getSourceCredentials(
+  userId: string,
   sourceId: JobSourceId,
 ): Promise<Record<string, string>> {
   const schema = SOURCE_CREDENTIAL_SCHEMA[sourceId];
   if (!schema) return {};
   const out: Record<string, string> = {};
   for (const field of schema.fields) {
-    const v = await getCredential(sourceId, field.id);
+    const v = await getCredential(userId, sourceId, field.id);
     if (v !== undefined) out[field.id] = v;
   }
   return out;
 }
 
 export async function setCredential(
+  userId: string,
   sourceId: JobSourceId,
   values: Record<string, string>,
 ): Promise<{ updatedAt: Date }> {
@@ -93,19 +101,22 @@ export async function setCredential(
     }
   }
   const row = await prisma.sourceCredential.upsert({
-    where: { sourceId },
-    create: { sourceId, secrets: clean },
+    where: { userId_sourceId: { userId, sourceId } },
+    create: { userId, sourceId, secrets: clean },
     update: { secrets: clean },
   });
-  cache.set(sourceId, clean);
+  cache.set(cacheKey(userId, sourceId), clean);
   return { updatedAt: row.updatedAt };
 }
 
-export async function clearCredential(sourceId: JobSourceId): Promise<void> {
+export async function clearCredential(
+  userId: string,
+  sourceId: JobSourceId,
+): Promise<void> {
   await prisma.sourceCredential
-    .delete({ where: { sourceId } })
+    .delete({ where: { userId_sourceId: { userId, sourceId } } })
     .catch(() => undefined); // delete is idempotent: no row, no harm
-  cache.delete(sourceId);
+  cache.delete(cacheKey(userId, sourceId));
 }
 
 export type CredentialStatus = {
@@ -129,14 +140,15 @@ function mask(value: string): string {
 }
 
 export async function getCredentialStatus(
+  userId: string,
   sourceId: JobSourceId,
 ): Promise<CredentialStatus | null> {
   const schema = SOURCE_CREDENTIAL_SCHEMA[sourceId];
   if (!schema) return null;
 
-  const row = await loadFromDb(sourceId);
+  const row = await loadFromDb(userId, sourceId);
   // Keep the cache hot for adapters that run next.
-  cache.set(sourceId, row?.secrets ?? {});
+  cache.set(cacheKey(userId, sourceId), row?.secrets ?? {});
 
   const fields = schema.fields.map((f) => {
     const dbValue = row?.secrets[f.id];

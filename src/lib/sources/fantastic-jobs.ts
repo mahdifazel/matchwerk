@@ -174,13 +174,13 @@ export const fantasticJobs: JobSource = {
   label: "Fantastic.jobs",
   tier: "primary",
   connected: true,
-  configured: async () => {
-    const c = await getSourceCredentials("FANTASTIC_JOBS");
+  configured: async (userId) => {
+    const c = await getSourceCredentials(userId, "FANTASTIC_JOBS");
     return Boolean(c.apiKey);
   },
 
   async search(params: SearchParams): Promise<RawJob[]> {
-    const { apiKey } = await getSourceCredentials("FANTASTIC_JOBS");
+    const { apiKey } = await getSourceCredentials(params.userId, "FANTASTIC_JOBS");
     if (!apiKey) return [];
 
     const titles = params.jobTitles.slice(0, MAX_TITLES);

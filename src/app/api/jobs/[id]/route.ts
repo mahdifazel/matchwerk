@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import type { JobStatus } from "@/generated/prisma/enums";
 import { prisma } from "@/lib/prisma";
+import { getSessionUserId } from "@/lib/repo";
 
 const patchSchema = z.object({
   action: z.enum(["star", "unstar", "apply", "unapply", "delete"]),
@@ -11,6 +12,11 @@ export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const userId = await getSessionUserId();
+  if (!userId) {
+    return NextResponse.json({ error: "Sign in to continue." }, { status: 401 });
+  }
+
   const { id } = await params;
   const body = await request.json().catch(() => null);
   const parsed = patchSchema.safeParse(body);
@@ -21,7 +27,8 @@ export async function PATCH(
     );
   }
 
-  const existing = await prisma.job.findUnique({ where: { id } });
+  // Scope to the caller so a user can only act on their own jobs.
+  const existing = await prisma.job.findFirst({ where: { id, userId } });
   if (!existing) {
     return NextResponse.json({ error: "Job not found." }, { status: 404 });
   }

@@ -3,7 +3,12 @@ import { z } from "zod";
 import type { JobSourceId } from "@/generated/prisma/enums";
 import { ALL_SOURCE_IDS } from "@/lib/constants";
 import { prisma } from "@/lib/prisma";
-import { getSettings, SETTINGS_ID } from "@/lib/repo";
+import { getSessionUserId, getSettings } from "@/lib/repo";
+
+const UNAUTHORIZED = NextResponse.json(
+  { error: "Sign in to continue." },
+  { status: 401 },
+);
 
 const seniority = z.enum(["JUNIOR", "MID", "SENIOR", "LEAD", "UNKNOWN"]);
 const jobType = z.enum([
@@ -27,12 +32,17 @@ const updateSchema = z.object({
 });
 
 export async function GET() {
-  const settings = await getSettings();
+  const userId = await getSessionUserId();
+  if (!userId) return UNAUTHORIZED;
+  const settings = await getSettings(userId);
   return NextResponse.json({ settings });
 }
 
 export async function PUT(request: Request) {
-  await getSettings();
+  const userId = await getSessionUserId();
+  if (!userId) return UNAUTHORIZED;
+
+  await getSettings(userId); // ensure the row exists before update
   const body = await request.json().catch(() => null);
   const parsed = updateSchema.safeParse(body);
   if (!parsed.success) {
@@ -43,7 +53,7 @@ export async function PUT(request: Request) {
   }
 
   const settings = await prisma.settings.update({
-    where: { id: SETTINGS_ID },
+    where: { userId },
     data: parsed.data,
   });
   return NextResponse.json({ settings });

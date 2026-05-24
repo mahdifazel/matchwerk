@@ -1,31 +1,17 @@
 import "dotenv/config";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../src/generated/prisma/client";
-import {
-  ALL_JOB_TYPES,
-  ALL_LOCATION_IDS,
-  ALL_SENIORITY,
-  ALL_SOURCE_IDS,
-  DEFAULT_JOB_TITLES,
-} from "../src/lib/constants";
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
 const prisma = new PrismaClient({ adapter });
 
+// Multi-tenant app: there is no global singleton to seed. Each user's Settings
+// row is created on first access (see getSettings(userId) in src/lib/repo.ts),
+// and their Profile is created when they upload a CV. Nothing to seed.
 async function main() {
-  await prisma.settings.upsert({
-    where: { id: "singleton" },
-    update: {},
-    create: {
-      id: "singleton",
-      jobTitles: DEFAULT_JOB_TITLES,
-      defaultLocations: ALL_LOCATION_IDS,
-      defaultSeniority: ALL_SENIORITY,
-      defaultJobTypes: ALL_JOB_TYPES,
-      defaultSources: ALL_SOURCE_IDS,
-    },
-  });
-  console.log("Seeded Settings singleton.");
+  console.log(
+    "Nothing to seed — Settings/Profile are created per-user on first use.",
+  );
 }
 
 main()

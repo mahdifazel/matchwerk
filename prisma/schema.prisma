@@ -1,5 +1,6 @@
-// Job Hunter — single-user AI job search app.
-// Profile and Settings are singletons (one row, id = "singleton").
+// Matchwerk — multi-tenant AI job search app.
+// Every data model (Profile, Settings, Job, SourceCredential) is scoped to a User.
+// Auth is handled by Auth.js (NextAuth v5) with Google + Credentials providers.
 
 generator client {
   provider = "prisma-client"
@@ -49,9 +50,99 @@ enum JobType {
   UNKNOWN
 }
 
-/// Parsed CV profile. Singleton — replaced wholesale on new CV upload.
+/// An authenticated account. `password` is null for OAuth-only (Google) users
+/// and a bcrypt hash for email/password users.
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  password      String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Token billing. Balances use 0.5 increments (hence Float). `tokenDebt` records
+  // overspend beyond a zeroed balance so the UI never shows a negative number.
+  // `tokensGrantedAt` is null until the one-time signup grant is applied.
+  tokenBalance    Float     @default(0)
+  tokenDebt       Float     @default(0)
+  tokensGrantedAt DateTime?
+
+  accounts    Account[]
+  sessions    Session[]
+  profile     Profile?
+  settings    Settings?
+  jobs        Job[]
+  credentials SourceCredential[]
+  ledger      TokenLedger[]
+}
+
+/// Append-only audit trail of token grants/charges. One row per action (not per
+/// job) — the per-job breakdown lives in `metadata`.
+model TokenLedger {
+  id           String   @id @default(cuid())
+  userId       String
+  delta        Float // negative = charge, positive = grant
+  balanceAfter Float
+  reason       String // "signup_grant" | "cv_parse" | "research"
+  metadata     Json?
+  createdAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+/// Auth.js linked OAuth account (e.g. Google).
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+/// Auth.js DB session row. Unused under the JWT strategy, but kept so the
+/// Prisma adapter contract is satisfied.
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+/// Auth.js verification token (email flows). Present for adapter completeness.
+model VerificationToken {
+  identifier String
+  token      String
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+/// Parsed CV profile. One per user — replaced wholesale on new CV upload.
+/// `userId` is nullable only so legacy single-tenant rows survive migration as
+/// orphans until claimed by the first user; app code always scopes by userId.
 model Profile {
-  id              String    @id @default("singleton")
+  id              String    @id @default(cuid())
+  userId          String?   @unique
   fileName        String
   rawCvText       String
   summary         String
@@ -63,34 +154,46 @@ model Profile {
   yearsExperience Int       @default(0)
   parsedAt        DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
-/// User search preferences. Singleton.
+/// User search preferences. One per user.
 model Settings {
-  id               String        @id @default("singleton")
+  id               String        @id @default(cuid())
+  userId           String?       @unique
   jobTitles        String[]
   defaultLocations String[]
   defaultSeniority Seniority[]
   defaultJobTypes  JobType[]
   defaultSources   JobSourceId[]
   updatedAt        DateTime      @updatedAt
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
-/// API credentials per source. Singleton per JobSourceId. Adapters fall back
-/// to process.env when no row exists. UI never reads `secrets` directly — only
-/// a masked tail is exposed over the wire.
+/// API credentials per source, per user. Adapters fall back to process.env when
+/// no row exists. UI never reads `secrets` directly — only a masked tail is
+/// exposed over the wire.
 model SourceCredential {
-  sourceId  JobSourceId @id
+  id        String      @id @default(cuid())
+  userId    String?
+  sourceId  JobSourceId
   secrets   Json
   updatedAt DateTime    @updatedAt
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, sourceId])
 }
 
 /// A job listing. Deleted jobs keep their row so dedupe permanently excludes them.
 model Job {
   id          String      @id @default(cuid())
+  userId      String?
   source      JobSourceId
   externalId  String
-  dedupeHash  String      @unique
+  dedupeHash  String
   title       String
   company     String
   location    String
@@ -113,6 +216,10 @@ model Job {
   fetchedAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, dedupeHash])
+  @@index([userId, status])
   @@index([status])
   @@index([source])
 }

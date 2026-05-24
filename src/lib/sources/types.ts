@@ -18,6 +18,8 @@ export type RawJob = {
 };
 
 export type SearchParams = {
+  /** The user whose credentials and workspace this search runs against. */
+  userId: string;
   /** Target job titles from user Settings. */
   jobTitles: string[];
   /** Selected location options to search within. */
@@ -33,7 +35,7 @@ export interface JobSource {
   tier: SourceTier;
   /** False for sources without a working adapter (e.g. JobSpy). */
   connected: boolean;
-  /** True when required credentials are present — in the DB or the env fallback. */
-  configured(): Promise<boolean>;
+  /** True when required credentials are present — in the user's DB row or the env fallback. */
+  configured(userId: string): Promise<boolean>;
   search(params: SearchParams): Promise<RawJob[]>;
 }

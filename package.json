@@ -1,5 +1,5 @@
 {
-  "name": "job-hunter",
+  "name": "matchwerk",
   "version": "1.0.0",
   "private": true,
   "scripts": {
@@ -17,15 +17,18 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.96.0",
+    "@auth/prisma-adapter": "^2.11.2",
     "@base-ui/react": "^1.4.1",
     "@prisma/adapter-pg": "^7.8.0",
     "@prisma/client": "^7.8.0",
+    "bcryptjs": "^3.0.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "dotenv": "^17.4.2",
     "lucide-react": "^1.16.0",
     "mammoth": "^1.12.0",
     "next": "16.2.6",
+    "next-auth": "^5.0.0-beta.31",
     "next-themes": "^0.4.6",
     "pg": "^8.20.0",
     "react": "19.2.4",
@@ -39,6 +42,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/bcryptjs": "^2.4.6",
     "@types/node": "^20.19.41",
     "@types/pg": "^8.20.0",
     "@types/react": "^19",

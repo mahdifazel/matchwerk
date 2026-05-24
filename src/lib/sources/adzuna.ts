@@ -116,13 +116,13 @@ export const adzuna: JobSource = {
   label: "Adzuna",
   tier: "backup",
   connected: true,
-  configured: async () => {
-    const c = await getSourceCredentials("ADZUNA");
+  configured: async (userId) => {
+    const c = await getSourceCredentials(userId, "ADZUNA");
     return Boolean(c.appId && c.appKey);
   },
 
   async search(params: SearchParams): Promise<RawJob[]> {
-    const { appId, appKey } = await getSourceCredentials("ADZUNA");
+    const { appId, appKey } = await getSourceCredentials(params.userId, "ADZUNA");
     if (!appId || !appKey) return [];
 
     const titles = params.jobTitles.slice(0, MAX_TITLES);
