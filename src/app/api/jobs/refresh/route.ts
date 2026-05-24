@@ -7,7 +7,8 @@ import {
 } from "@/lib/constants";
 import { scoreJobs } from "@/lib/matcher";
 import { prisma } from "@/lib/prisma";
-import { getProfile, getSettings } from "@/lib/repo";
+import { getProfile, getSessionUserId, getSettings } from "@/lib/repo";
+import { charge, TOKEN } from "@/lib/tokens";
 import { searchEnabledSources } from "@/lib/sources";
 import { dedupeRawJobs } from "@/lib/sources/dedupe";
 import { isLikelySameJob } from "@/lib/sources/similarity";
@@ -23,7 +24,12 @@ export async function POST() {
 }
 
 async function runRefresh() {
-  const profile = await getProfile();
+  const userId = await getSessionUserId();
+  if (!userId) {
+    return NextResponse.json({ error: "Sign in to continue." }, { status: 401 });
+  }
+
+  const profile = await getProfile(userId);
   if (!profile) {
     return NextResponse.json(
       { error: "Upload a CV first — the matcher needs your profile." },
@@ -31,7 +37,7 @@ async function runRefresh() {
     );
   }
 
-  const settings = await getSettings();
+  const settings = await getSettings(userId);
 
   // Locations to search: from saved settings, falling back to all.
   const selectedLocations = LOCATION_OPTIONS.filter(
@@ -44,26 +50,31 @@ async function runRefresh() {
 
   // 1. Tiered fetch across enabled sources (primary → backup → fallback).
   const { jobs: allRaw, reports } = await searchEnabledSources(
-    { jobTitles: settings.jobTitles, locations },
+    { userId, jobTitles: settings.jobTitles, locations },
     settings.defaultSources,
   );
   const scanned = allRaw.length;
 
-  // 2. Merge cross-platform duplicates.
-  const deduped = dedupeRawJobs(allRaw);
+  // 2. Merge cross-platform duplicates, then cap to the per-search maximum.
+  const considered = dedupeRawJobs(allRaw).slice(0, TOKEN.MAX_SEARCH_JOBS);
 
-  // 3a. Drop anything already in the DB by exact hash (any status — DELETED stays excluded too).
+  // 3a. Split into repeats (already in the user's DB by exact hash) and fresh.
+  // Repeats are billed for re-display but never re-scored; DELETED rows count as
+  // repeats too, so hidden/removed jobs stay excluded and cheap.
   const existing = await prisma.job.findMany({
-    where: { dedupeHash: { in: deduped.map((j) => j.dedupeHash) } },
+    where: { userId, dedupeHash: { in: considered.map((j) => j.dedupeHash) } },
     select: { dedupeHash: true },
   });
   const existingHashes = new Set(existing.map((e) => e.dedupeHash));
-  let fresh = deduped.filter((j) => !existingHashes.has(j.dedupeHash));
+  const repeatsCount = considered.filter((j) =>
+    existingHashes.has(j.dedupeHash),
+  ).length;
+  let fresh = considered.filter((j) => !existingHashes.has(j.dedupeHash));
 
   // 3b. Also drop anything that LOOKS LIKE a starred or applied job — handles cross-source
   // title variants (e.g. "Senior PD" vs "Senior PD - parental leave cover" at the same company).
   const protectedJobs = await prisma.job.findMany({
-    where: { status: { in: ["STARRED", "APPLIED"] } },
+    where: { userId, status: { in: ["STARRED", "APPLIED"] } },
     select: { title: true, company: true, location: true },
   });
   if (protectedJobs.length > 0) {
@@ -101,8 +112,29 @@ async function runRefresh() {
     });
   }
 
-  if (fresh.length === 0) {
-    return NextResponse.json({ added: 0, scanned, reports });
+  // Cost: 0.5 per surfaced job (fresh + repeats) + 1 per freshly-rated job.
+  const ratedCount = fresh.length;
+  const cost =
+    TOKEN.PER_JOB_DISPLAY * (ratedCount + repeatsCount) +
+    TOKEN.PER_JOB_RATING * ratedCount;
+
+  // Only repeats reappeared — bill their re-display (no re-rating) and stop.
+  if (ratedCount === 0) {
+    const tokens = await charge(userId, cost, "research", {
+      considered: considered.length,
+      rated: 0,
+      repeats: repeatsCount,
+    });
+    return NextResponse.json({
+      added: 0,
+      scanned,
+      reports,
+      tokens: {
+        balance: tokens.balance,
+        charged: tokens.charged,
+        debtAdded: tokens.debtAdded,
+      },
+    });
   }
 
   // 4. Score the new jobs against the CV profile + user preferences.
@@ -127,6 +159,7 @@ async function runRefresh() {
   const rows: Prisma.JobCreateManyInput[] = fresh.map((j) => {
     const score = scores.get(j.dedupeHash);
     return {
+      userId,
       source: j.source,
       externalId: j.externalId,
       dedupeHash: j.dedupeHash,
@@ -152,5 +185,21 @@ async function runRefresh() {
     skipDuplicates: true,
   });
 
-  return NextResponse.json({ added: result.count, scanned, reports });
+  // 6. Charge once the new jobs are scored + stored, so a failed run isn't billed.
+  const tokens = await charge(userId, cost, "research", {
+    considered: considered.length,
+    rated: ratedCount,
+    repeats: repeatsCount,
+  });
+
+  return NextResponse.json({
+    added: result.count,
+    scanned,
+    reports,
+    tokens: {
+      balance: tokens.balance,
+      charged: tokens.charged,
+      debtAdded: tokens.debtAdded,
+    },
+  });
 }

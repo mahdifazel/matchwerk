@@ -2,9 +2,15 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { extractCvText, parseCvProfile } from "@/lib/cv-parser";
 import { prisma } from "@/lib/prisma";
-import { getProfile, getSettings, PROFILE_ID, SETTINGS_ID } from "@/lib/repo";
+import { getProfile, getSessionUserId, getSettings } from "@/lib/repo";
+import { charge, TOKEN } from "@/lib/tokens";
 
 const stringList = z.array(z.string().trim().min(1)).max(200);
+
+const UNAUTHORIZED = NextResponse.json(
+  { error: "Sign in to continue." },
+  { status: 401 },
+);
 
 const patchSchema = z
   .object({
@@ -17,11 +23,16 @@ const patchSchema = z
   .refine((v) => Object.keys(v).length > 0, "No fields to update.");
 
 export async function GET() {
-  const profile = await getProfile();
+  const userId = await getSessionUserId();
+  if (!userId) return UNAUTHORIZED;
+  const profile = await getProfile(userId);
   return NextResponse.json({ profile });
 }
 
 export async function POST(request: Request) {
+  const userId = await getSessionUserId();
+  if (!userId) return UNAUTHORIZED;
+
   let formData: FormData;
   try {
     formData = await request.formData();
@@ -49,9 +60,9 @@ export async function POST(request: Request) {
     const { suggestedJobTitles, ...profileFields } = await parseCvProfile(rawText);
 
     const profile = await prisma.profile.upsert({
-      where: { id: PROFILE_ID },
+      where: { userId },
       create: {
-        id: PROFILE_ID,
+        userId,
         fileName: file.name,
         rawCvText: rawText,
         ...profileFields,
@@ -68,9 +79,9 @@ export async function POST(request: Request) {
     // Auto-personalize Settings: the 3 model-suggested titles overwrite
     // whatever was there. The user can still edit them in Settings.
     if (suggestedJobTitles.length > 0) {
-      await getSettings(); // ensure the singleton exists before update
+      await getSettings(userId); // ensure the row exists before update
       await prisma.settings.update({
-        where: { id: SETTINGS_ID },
+        where: { userId },
         data: { jobTitles: suggestedJobTitles },
       });
     }
@@ -79,12 +90,18 @@ export async function POST(request: Request) {
     // NEW job so the board doesn't show stale matches from the previous
     // profile. STARRED and APPLIED rows are preserved — the user might have
     // already acted on those and shouldn't lose that history.
-    const cleared = await prisma.job.deleteMany({ where: { status: "NEW" } });
+    const cleared = await prisma.job.deleteMany({
+      where: { userId, status: "NEW" },
+    });
+
+    // Charge for the AI parse (once per upload — inline PATCH edits are free).
+    const tokens = await charge(userId, TOKEN.CV_PARSE, "cv_parse");
 
     return NextResponse.json({
       profile,
       suggestedJobTitles,
       clearedJobs: cleared.count,
+      tokens: { balance: tokens.balance, charged: tokens.charged },
     });
   } catch (err) {
     const message =
@@ -94,7 +111,10 @@ export async function POST(request: Request) {
 }
 
 export async function PATCH(request: Request) {
-  const existing = await getProfile();
+  const userId = await getSessionUserId();
+  if (!userId) return UNAUTHORIZED;
+
+  const existing = await getProfile(userId);
   if (!existing) {
     return NextResponse.json(
       { error: "Upload a CV before editing the profile." },
@@ -118,7 +138,7 @@ export async function PATCH(request: Request) {
   }
 
   const profile = await prisma.profile.update({
-    where: { id: PROFILE_ID },
+    where: { userId },
     data: parsed.data,
   });
   return NextResponse.json({ profile });

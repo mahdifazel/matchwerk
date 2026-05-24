@@ -15,6 +15,8 @@ import {
   type DatePostedId,
 } from "@/lib/constants";
 import { prisma } from "@/lib/prisma";
+import { getSessionUserId } from "@/lib/repo";
+import { TOKEN } from "@/lib/tokens";
 
 const LOCATION_MATCHES: Record<string, string[]> = {
   berlin: ["Berlin"],
@@ -32,6 +34,11 @@ function csv(value: string | null): string[] {
 }
 
 export async function GET(request: Request) {
+  const userId = await getSessionUserId();
+  if (!userId) {
+    return NextResponse.json({ error: "Sign in to continue." }, { status: 401 });
+  }
+
   const { searchParams } = new URL(request.url);
 
   const tab = searchParams.get("tab") ?? "inbox";
@@ -42,7 +49,7 @@ export async function GET(request: Request) {
   const jobTypes = csv(searchParams.get("jobTypes")) as JobType[];
   const locations = csv(searchParams.get("locations"));
 
-  const where: Prisma.JobWhereInput = { status };
+  const where: Prisma.JobWhereInput = { userId, status };
 
   // A filter only narrows results when the user has deselected something.
   // When everything is selected (the default), don't filter at all — otherwise
@@ -90,6 +97,10 @@ export async function GET(request: Request) {
       ? [{ appliedAt: "desc" }]
       : [{ matchScore: "desc" }, { fetchedAt: "desc" }];
 
-  const jobs = await prisma.job.findMany({ where, orderBy });
+  // The inbox shows only the top-scored jobs; lower-ranked ones stay stored
+  // (and billed) but hidden. Starred/Applied are user-curated, so uncapped.
+  const take = tab === "inbox" ? TOKEN.MAX_BOARD_JOBS : undefined;
+
+  const jobs = await prisma.job.findMany({ where, orderBy, take });
   return NextResponse.json({ jobs });
 }

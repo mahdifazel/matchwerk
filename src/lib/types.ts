@@ -63,6 +63,7 @@ export type RefreshResult = {
   added: number;
   scanned: number;
   reports: SourceRunReportDTO[];
+  tokens?: { balance: number; charged: number; debtAdded: number };
 };
 
 export type SourceStatusDTO = {

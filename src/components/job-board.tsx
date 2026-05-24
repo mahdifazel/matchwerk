@@ -36,6 +36,7 @@ import {
   SOURCE_META,
 } from "@/lib/constants";
 import type { JobDTO, RefreshResult, SettingsDTO } from "@/lib/types";
+import { formatTokens, notifyTokensUpdated } from "@/lib/use-token-balance";
 import { cn } from "@/lib/utils";
 
 const SOURCE_LABEL = new Map(SOURCE_META.map((s) => [s.id, s.label]));
@@ -149,12 +150,18 @@ export function JobBoard() {
           return r.ran ? `${label}: ${r.count}` : `${label}: skipped`;
         })
         .join(" · ");
+      const spent = result.tokens?.charged ?? 0;
+      const spentText =
+        spent > 0 ? ` · spent ${formatTokens(spent)} tokens` : "";
       toast.success(
-        result.added > 0
-          ? `Added ${result.added} new job${result.added === 1 ? "" : "s"} (scanned ${result.scanned}).`
-          : `No new jobs — scanned ${result.scanned} listings.`,
+        (result.added > 0
+          ? `Added ${result.added} new job${result.added === 1 ? "" : "s"} (scanned ${result.scanned})`
+          : `No new jobs — scanned ${result.scanned} listings`) +
+          spentText +
+          ".",
         { description: breakdown },
       );
+      notifyTokensUpdated();
       await fetchJobs();
     } catch {
       toast.error("Refresh failed.");

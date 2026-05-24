@@ -1,8 +1,18 @@
 "use client";
 
+import { Coins, LogOut, Settings as SettingsIcon, UserRound } from "lucide-react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { signOut, useSession } from "next-auth/react";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { formatTokens, useTokenBalance } from "@/lib/use-token-balance";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 
 type NavItem = { href: string; label: string };
@@ -24,7 +34,7 @@ export function AppHeader() {
         <Link href="/" className="group flex items-center gap-2.5">
           <Logomark />
           <span className="font-display text-[1.35rem] leading-none tracking-tight">
-            Job&nbsp;Hunter
+            Matchwerk
           </span>
         </Link>
 
@@ -50,11 +60,79 @@ export function AppHeader() {
               />
             </Link>
           ))}
+          <TokenPill />
           <span className="bg-border/80 mx-1 hidden h-5 w-px sm:block" />
           <ThemeToggle />
+          <UserMenu />
         </nav>
       </div>
     </header>
+  );
+}
+
+function TokenPill() {
+  const { status } = useSession();
+  const { balance } = useTokenBalance();
+  if (status !== "authenticated" || balance == null) return null;
+
+  return (
+    <span
+      className="border-border/70 bg-card text-foreground inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-sm font-medium tabular-nums"
+      title="Token balance"
+    >
+      <Coins className="text-muted-foreground size-3.5" />
+      {formatTokens(balance)}
+    </span>
+  );
+}
+
+function UserMenu() {
+  const { data: session, status } = useSession();
+  const router = useRouter();
+  if (status !== "authenticated") return null;
+
+  const user = session.user;
+  const display = user.name || user.email || "Account";
+  const initial = (user.name || user.email || "?").charAt(0).toUpperCase();
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        className="border-border/70 bg-card text-foreground hover:bg-muted ml-1 flex size-8 items-center justify-center overflow-hidden rounded-full border text-sm font-medium transition-colors outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+        aria-label="Account menu"
+      >
+        {user.image ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={user.image} alt="" className="size-full object-cover" />
+        ) : (
+          initial
+        )}
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-56">
+        <div className="flex flex-col gap-0.5 px-1.5 py-1">
+          <span className="truncate text-sm font-medium">{display}</span>
+          {user.email && user.email !== display && (
+            <span className="text-muted-foreground truncate text-xs">
+              {user.email}
+            </span>
+          )}
+        </div>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={() => router.push("/account")}>
+          <UserRound />
+          Account
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => router.push("/settings")}>
+          <SettingsIcon />
+          Settings
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={() => signOut({ callbackUrl: "/login" })}>
+          <LogOut />
+          Sign out
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -64,7 +142,7 @@ function Logomark() {
       aria-hidden
       className="bg-primary text-primary-foreground relative flex size-8 items-center justify-center rounded-md shadow-sm"
     >
-      <span className="font-display text-[1.1rem] leading-none">J</span>
+      <span className="font-display text-[1.1rem] leading-none">M</span>
       <span
         className="bg-accent absolute -right-0.5 -top-0.5 size-1.5 rounded-full"
         style={{ boxShadow: "0 0 0 2px var(--background)" }}

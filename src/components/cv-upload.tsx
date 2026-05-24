@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import type { ProfileDTO } from "@/lib/types";
+import { formatTokens, notifyTokensUpdated } from "@/lib/use-token-balance";
 import { cn } from "@/lib/utils";
 
 const SENIORITY_LABEL: Record<string, string> = {
@@ -174,9 +175,14 @@ export function CvUpload() {
       setProfile(data.profile);
       setDraft(profileToDraft(data.profile));
       window.dispatchEvent(new Event("cv-updated"));
+      notifyTokensUpdated();
       const suggested: string[] = data.suggestedJobTitles ?? [];
       const cleared: number = data.clearedJobs ?? 0;
+      const charged: number = data.tokens?.charged ?? 0;
       const descriptionLines: string[] = [];
+      if (charged > 0) {
+        descriptionLines.push(`Spent ${formatTokens(charged)} tokens`);
+      }
       if (suggested.length > 0) {
         descriptionLines.push(`Suggested titles: ${suggested.join(", ")}`);
       }
