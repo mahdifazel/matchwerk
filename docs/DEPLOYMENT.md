@@ -23,7 +23,9 @@ Derived from the codebase:
 3. **Outbound HTTPS** to: `api.anthropic.com`, `rest.arbeitsagentur.de`, `jsearch.p.rapidapi.com`, `active-jobs-db.p.rapidapi.com`, `api.adzuna.com`. Also Indeed and Glassdoor *if* JobSpy is enabled.
 4. **Environment variables** as documented in `.env.example`:
    - `DATABASE_URL` (required)
+   - `AUTH_SECRET` (required — signs the session JWT; generate with `npx auth secret`). In production also set `AUTH_URL`/`NEXTAUTH_URL` to the deployed origin and `AUTH_TRUST_HOST=true` behind a proxy.
    - `ANTHROPIC_API_KEY` (required for any CV upload or refresh)
+   - `AUTH_GOOGLE_ID` + `AUTH_GOOGLE_SECRET` (optional — Google sign-in; register the prod redirect URI `https://<host>/api/auth/callback/google`. Email/password works without it.)
    - `JSEARCH_API_KEY`, `FANTASTIC_JOBS_API_KEY`, `ADZUNA_APP_ID`, `ADZUNA_APP_KEY` (optional, per source)
    - `JOBSPY_SITES` (optional, JobSpy only)
 5. **If JobSpy is needed:** Python 3.10+ runtime alongside Node + the `.venv-jobspy/` venv with `python-jobspy` installed. Most managed Node hosts don't provide a Python runtime — this means JobSpy effectively cannot run on Vercel, Netlify, or similar serverless platforms. Use a container host or a VM if you need it.
@@ -48,13 +50,7 @@ npx prisma migrate deploy
 
 (not `migrate dev` — `deploy` applies pending migrations non-interactively and refuses to drop/reset). This needs `DATABASE_URL` set; the migration history is part of the repo, so a fresh DB will be brought up to schema state by running `migrate deploy` against it once.
 
-After applying migrations, seed the singleton:
-
-```bash
-npm run db:seed
-```
-
-Run this **once per database** — `prisma.settings.upsert({ where: { id: "singleton" }, update: {} })` is a no-op if the row exists.
+There is **no seed step** to run. The app is multi-tenant — each user's `Settings` row is created on first access and their `Profile` when they upload a CV, so `npm run db:seed` is a no-op. The first account to register or sign in claims any legacy `userId = null` rows (a no-op on a fresh database). Just make sure `AUTH_SECRET` is set so users can actually sign in.
 
 ---
 
@@ -94,7 +90,7 @@ Caveats:
 
 - Sets `next.config.ts: { output: "standalone" }` would shrink the runtime image but is not currently configured.
 - Does *not* include the JobSpy venv. To include it, add `apk add python3 py3-pip` to the runner stage and bake in `python-jobspy`, then ensure `.venv-jobspy/bin/python` resolves at runtime (or rewrite `jobspy.ts` to look up `which python3`).
-- Does *not* include a healthcheck endpoint — `GET /api/sources` will work as a liveness probe.
+- Does *not* include a healthcheck endpoint. `GET /api/sources` now requires a session and returns **401** when unauthenticated — a 401 still proves the process is up, but it's not a clean `200` liveness probe. Adding a public `/api/health` returning `{ ok: true }` is the cleaner fix (see "What needs to be added").
 
 ### docker-compose.prod.yml (proposed, not committed)
 
@@ -115,7 +111,12 @@ services:
     depends_on: [db]
     environment:
       DATABASE_URL: postgresql://${PG_USER}:${PG_PASSWORD}@db:5432/${PG_DB}?schema=public
+      AUTH_SECRET: ${AUTH_SECRET}
+      AUTH_URL: ${AUTH_URL}                 # e.g. https://jobs.example.com
+      AUTH_TRUST_HOST: "true"               # behind a reverse proxy
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      AUTH_GOOGLE_ID: ${AUTH_GOOGLE_ID}     # optional — Google sign-in
+      AUTH_GOOGLE_SECRET: ${AUTH_GOOGLE_SECRET}
       JSEARCH_API_KEY: ${JSEARCH_API_KEY}
       FANTASTIC_JOBS_API_KEY: ${FANTASTIC_JOBS_API_KEY}
       ADZUNA_APP_ID: ${ADZUNA_APP_ID}
@@ -162,18 +163,19 @@ npm run build                   # must succeed
 Then against the target environment:
 
 ```bash
-DATABASE_URL=<prod-url> npx prisma migrate deploy   # apply schema
-DATABASE_URL=<prod-url> npm run db:seed             # seed Settings singleton (idempotent)
+DATABASE_URL=<prod-url> npx prisma migrate deploy   # apply schema (no seed step — see Migrations)
 ```
 
 Smoke-test after deploy:
 
 ```bash
-curl https://<host>/api/sources
-# Expect: { "sources": [...] } with 5 entries
+curl -i https://<host>/api/sources
+# Expect: HTTP 401 {"error":"Sign in to continue."} — proves the app is up and auth is enforced.
+# Then register/sign in in the browser and load /api/sources from an authenticated session;
+# expect { "sources": [...] } with 5 entries.
 ```
 
-If `ANTHROPIC_API_KEY` is unset, the CV upload route will return a 500 with a clear message. The Sources endpoint will respond fine even without any keys — it just shows `configured: false` for the dependent sources.
+If `AUTH_SECRET` is unset, sign-in fails and every gated route is unreachable. If `ANTHROPIC_API_KEY` is unset, the CV upload route returns a 500 with a clear message. Once authenticated, the Sources endpoint responds fine even without any source keys — it just shows `configured: false` for the dependent sources.
 
 ---
 
@@ -198,7 +200,7 @@ In rough priority order:
 5. **CI pipeline** that runs typecheck + lint + build on every push. No `.github/workflows/` exist.
 6. **Observability** — log aggregation, error tracking (Sentry), uptime monitoring. None currently configured.
 7. **Secrets management** — secrets currently live in `.env.local`. In production, route them through your platform's secret store.
-8. **Rate-limit & cost controls** — refresh can issue dozens of API calls; without throttling a runaway client (or a CRON misconfiguration if you add scheduled refreshes) can burn quota fast.
+8. **Rate-limit & cost controls** — refresh can issue dozens of API calls; without throttling a runaway client (or a CRON misconfiguration if you add scheduled refreshes) can burn quota fast. The in-app token economy (`src/lib/tokens.ts`) makes per-user AI spend *visible* via the `TokenLedger`, but it does **not** enforce a ceiling — `charge()` accrues debt rather than blocking. A real cost control would gate the run on `balance >= cost` before spending.
 
 ---
 
@@ -207,6 +209,6 @@ In rough priority order:
 These are not answered by the codebase and require a product decision:
 
 - **Who hosts it?** No deploy target is implied anywhere.
-- **What's the SLA?** Single-user tool — probably "best effort", but worth stating.
-- **Backups: hot or cold?** Profile.rawCvText holds the raw CV; losing it means re-uploading. Settings can be re-seeded.
+- **What's the SLA?** Multi-tenant now (Auth.js), though still owner-operated — probably "best effort", but worth stating once there are real users.
+- **Backups: hot or cold?** `Profile.rawCvText` holds each user's raw CV; losing it means every user re-uploading. `User`, `Settings`, `Job`, and the `TokenLedger` (the billing audit trail) are not re-derivable either — there's no seed to fall back on.
 - **Scheduled refresh?** Currently refresh is manual (button-triggered). If you want a CRON refresh, you'd add a `/api/jobs/refresh` cron call (Vercel Cron, GitHub Actions cron, host cron, etc.) — none configured.

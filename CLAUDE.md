@@ -1,4 +1,4 @@
-# CLAUDE.md — Job Hunter
+# CLAUDE.md — Matchwerk
 
 A guide for engineers (and Claude) working on this codebase. Read top-to-bottom on day one. Everything below is derived from the code as it exists today; anything not present in the codebase is explicitly flagged as such.
 
@@ -6,9 +6,13 @@ A guide for engineers (and Claude) working on this codebase. Read top-to-bottom 
 
 ## 1. Project overview
 
-**Job Hunter** is a single-user web app that pulls real Product Design job listings from German job boards, deduplicates them across sources, scores each listing against the user's CV via Claude, and presents them in a board where the user can star, mark applied, or hide jobs.
+**Matchwerk** is a multi-tenant web app that pulls real Product Design (and other) job listings from German job boards, deduplicates them across sources, scores each listing against the signed-in user's CV via Claude, and presents them in a board where the user can star, mark applied, or hide jobs.
 
-It exists for one person: the project owner, who is searching for Product Designer / Senior Product Designer / UX-UI roles in Berlin, Munich, Hamburg and remote-Germany. **There is no authentication and no multi-tenant model** — the Profile row and Settings row are hard-coded singletons with id `"singleton"`.
+**Auth & tenancy.** Users sign in with **Google** or with **email/password** (open registration). Auth is handled by **Auth.js v5 (NextAuth)** — see `src/auth.ts` / `src/auth.config.ts`. Every data model (`Profile`, `Settings`, `Job`, `SourceCredential`) carries a `userId` and is scoped to its owner; there is one `Profile` and one `Settings` row **per user** (`userId @unique`), not a global singleton. Page routes are gated by `src/proxy.ts` (Next 16 "Proxy", formerly Middleware); API routes self-guard with a JSON 401 via `getSessionUserId()` in `src/lib/repo.ts`.
+
+> **Legacy single-tenant data** (rows with `userId = null`) is claimed by the **first** account to register or sign in — see `claimOrphanDataForFirstUser` in `src/lib/claim.ts`. `userId` is nullable purely so those pre-multi-tenancy rows survive migration; all app queries scope by the authenticated (non-null) `userId`.
+
+The original audience is one person — the project owner, searching Product Designer / Senior Product Designer / UX-UI roles in Berlin, Munich, Hamburg and remote-Germany — but the app now supports any number of independent accounts.
 
 **Real jobs only.** No fixture/mock data is ever shown. Sources without API credentials surface as visibly inactive in the UI.
 
@@ -24,6 +28,8 @@ It exists for one person: the project owner, who is searching for Product Design
 | Fonts | `Inter` (sans body), `Fraunces` (editorial display), `JetBrains Mono` (tabular) — all via `next/font/google` with CSS vars `--font-jh-sans`, `--font-jh-display`, `--font-jh-mono` |
 | Database | PostgreSQL 16 (alpine) in Docker on port **5433** | `docker-compose.yml`. Credentials: `jobhunter` / `jobhunter` / db `jobhunter` |
 | ORM | Prisma 7.8 with `@prisma/adapter-pg` | Custom client output at `src/generated/prisma` (gitignored) |
+| Auth | Auth.js v5 (`next-auth@5.0.0-beta`) + `@auth/prisma-adapter`, `bcryptjs` for password hashing | Google OAuth + email/password credentials; JWT session strategy. See `src/auth.ts` / `src/auth.config.ts` |
+| Billing | In-app token economy (`src/lib/tokens.ts`) | Float balances + debt on `User`, append-only `TokenLedger`. No external payment provider |
 | AI | Anthropic SDK 0.96.0 | Sonnet 4.6 for CV parsing, Haiku 4.5 for scoring with CV cached as ephemeral system block |
 | File parsing | `mammoth` (DOCX), `unpdf` (PDF) — plus inline TXT/MD |
 | Validation | `zod` 4 |
@@ -39,56 +45,79 @@ It exists for one person: the project owner, who is searching for Product Design
 Job_Hunter/
 ├── docker-compose.yml          # Postgres 16 on :5433
 ├── prisma/
-│   ├── schema.prisma           # Models: Profile, Settings, Job; enums for source/status/type/seniority
-│   ├── seed.ts                 # Upserts the Settings singleton
-│   └── migrations/             # Three so far: init, add_aggregator_sources, add_fantastic_jobs_source
+│   ├── schema.prisma           # Models: User, Account, Session, VerificationToken, Profile, Settings, SourceCredential, Job, TokenLedger; enums
+│   ├── seed.ts                 # No-op — Settings/Profile are created per-user on first use
+│   └── migrations/             # init, add_aggregator_sources, add_fantastic_jobs_source, add_source_credentials, add_auth_multitenant, add_token_billing
 ├── prisma.config.ts            # Loads schema + DATABASE_URL via dotenv
 ├── scripts/
 │   └── jobspy_bridge.py        # Python bridge for the JobSpy adapter
 ├── .venv-jobspy/               # Gitignored Python venv for jobspy
 ├── public/                     # Static assets
 └── src/
+    ├── auth.ts                 # NextAuth init: Google + Credentials providers, JWT session, createUser event (claim orphans + signup grant)
+    ├── auth.config.ts          # Edge-safe auth config (providers list, pages) shared with the proxy
+    ├── proxy.ts                # Next 16 "Proxy" (formerly Middleware) — gates page routes by session
+    ├── types/                  # Ambient type augmentation (next-auth session/JWT)
     ├── app/
     │   ├── layout.tsx          # Loads fonts, ThemeProvider, Toaster
+    │   ├── icon.svg            # Branded favicon (ink "M" mark + chartreuse accent dot) — Next.js app/icon convention
     │   ├── globals.css         # Atelier design system: palette + tokens + utilities
     │   ├── page.tsx            # Board page (job feed)
+    │   ├── login/page.tsx      # Sign-in (Google + email/password)
+    │   ├── register/page.tsx   # Open registration (email/password)
+    │   ├── account/page.tsx    # Account settings: display name, password, token balance
     │   ├── settings/page.tsx   # CV upload + search preferences
     │   └── api/
-    │       ├── cv/route.ts             # GET + POST (multipart) parsed profile
-    │       ├── jobs/route.ts           # GET filtered listings by tab
-    │       ├── jobs/refresh/route.ts   # POST → orchestrates source fetch, dedupe, score, persist
-    │       ├── jobs/[id]/route.ts      # PATCH star/unstar/apply/delete
-    │       ├── jobs/bulk/route.ts      # POST bulk delete
-    │       ├── settings/route.ts       # GET + PUT
-    │       └── sources/route.ts        # GET runtime source status
+    │       ├── auth/[...nextauth]/route.ts          # Auth.js handlers (signin/callback/signout)
+    │       ├── register/route.ts                    # POST email/password registration (+ claim orphans, signup grant)
+    │       ├── account/route.ts                     # GET account + token balance / PATCH display name
+    │       ├── account/password/route.ts            # PUT set/change password
+    │       ├── tokens/route.ts                       # GET token balance + debt
+    │       ├── cv/route.ts                          # GET / POST (multipart, charges) / PATCH (edit summary + chips)
+    │       ├── jobs/route.ts                        # GET filtered listings by tab (+ datePosted cutoff)
+    │       ├── jobs/refresh/route.ts                # POST → fetch, dedupe, pre-score filter, score, persist, charge
+    │       ├── jobs/[id]/route.ts                   # PATCH star/unstar/apply/unapply/delete
+    │       ├── jobs/bulk/route.ts                   # POST bulk delete or bulk unapply
+    │       ├── settings/route.ts                    # GET + PUT
+    │       ├── sources/route.ts                     # GET runtime source status (+ editable, credentialSource)
+    │       └── sources/[id]/credentials/route.ts    # GET / PUT / DELETE source credentials (masked)
     ├── components/
-    │   ├── app-header.tsx, theme-toggle.tsx, theme-provider.tsx
+    │   ├── app-header.tsx, theme-toggle.tsx, theme-provider.tsx   # header shows the token-balance pill
+    │   ├── auth/                   # auth-shell.tsx (login/register layout), google-button.tsx
+    │   ├── account-form.tsx        # Account page form (name, password, balance)
     │   ├── job-board.tsx, job-card.tsx, match-badge.tsx (exports ScoreMeter)
     │   ├── filter-bar.tsx, refresh-button.tsx, empty-state.tsx
-    │   ├── cv-upload.tsx, settings-form.tsx
-    │   └── ui/                 # shadcn primitives wrapping @base-ui/react
+    │   ├── cv-upload.tsx           # Drag-and-drop + inline profile editor
+    │   ├── credential-editor.tsx   # Per-source API key editor used in Settings
+    │   ├── settings-form.tsx       # Job titles list + collapsible API credentials + Sources
+    │   └── ui/                     # shadcn primitives wrapping @base-ui/react
     └── lib/
-        ├── prisma.ts           # Global Prisma client (dev-mode warning logs)
-        ├── anthropic.ts        # Lazy client + MODELS constant + hasAnthropicKey()
-        ├── cv-parser.ts        # extractCvText (PDF/DOCX/TXT) + parseCvProfile (Claude tool-use)
-        ├── matcher.ts          # scoreJobs — batched Haiku tool-use with cached CV in system
-        ├── repo.ts             # getSettings (upsert), getProfile, SINGLETON id
-        ├── constants.ts        # SOURCE_META, LOCATION_OPTIONS, SENIORITY/JOBTYPE options
-        ├── infer.ts            # inferSeniority / inferJobType regex heuristics
-        ├── types.ts            # DTOs sent over the wire
-        ├── use-source-status.ts # Client hook fetching /api/sources
-        ├── utils.ts            # cn() helper
+        ├── prisma.ts             # Global Prisma client (dev-mode warning logs)
+        ├── anthropic.ts          # Lazy client + MODELS constant + hasAnthropicKey()
+        ├── claim.ts              # claimOrphanDataForFirstUser — legacy userId=null rows → first account
+        ├── tokens.ts             # SERVER-ONLY: TOKEN prices, getTokenAccount (lazy grant), charge, grant
+        ├── use-token-balance.ts  # Client hook + notifyTokensUpdated() event + formatTokens()
+        ├── cv-parser.ts          # extractCvText (PDF/DOCX/TXT, C0-byte sanitized) + parseCvProfile (Claude tool-use; emits 3 suggestedJobTitles)
+        ├── matcher.ts            # scoreJobs — batched Haiku tool-use; role-agnostic prompt + ScoringPreferences from Settings
+        ├── repo.ts               # getSessionUserId, getSettings (upsert by userId), getProfile (by userId)
+        ├── constants.ts          # SOURCE_META, LOCATION_OPTIONS, SENIORITY/JOBTYPE options, DATE_POSTED_OPTIONS, TAB_STATUSES
+        ├── credential-schema.ts  # CLIENT-SAFE: per-source field defs + env-fallback names
+        ├── credentials.ts        # SERVER-ONLY: DB-first/env-fallback resolution, masked status, per-process cache
+        ├── infer.ts              # inferSeniority / inferJobType regex heuristics
+        ├── types.ts              # DTOs sent over the wire (incl. SourceStatusDTO, CredentialStatusDTO)
+        ├── use-source-status.ts  # Client hook fetching /api/sources (with refetch)
+        ├── utils.ts              # cn() helper
         └── sources/
-            ├── index.ts        # ALL_SOURCES (in tier order)
-            ├── types.ts        # JobSource, RawJob, SearchParams interfaces
-            ├── search.ts       # Tiered orchestrator (primary → backup → fallback)
-            ├── dedupe.ts       # SHA-1 hash from normalized title|company|city
-            ├── similarity.ts   # isLikelySameJob — used to protect starred/applied jobs
-            ├── ba-jobboerse.ts # Public German API, no key
-            ├── jsearch.ts      # RapidAPI aggregator
-            ├── fantastic-jobs.ts # RapidAPI Active Jobs DB (tsquery title filter)
-            ├── adzuna.ts       # Adzuna /de/search
-            └── jobspy.ts       # Spawns the Python bridge
+            ├── index.ts            # ALL_SOURCES (in tier order)
+            ├── types.ts            # JobSource, RawJob, SearchParams interfaces (configured() is async)
+            ├── search.ts           # Tiered orchestrator (primary → backup → fallback)
+            ├── dedupe.ts           # SHA-1 hash from normalized title|company|city
+            ├── similarity.ts       # isLikelySameJob — used to protect starred/applied jobs
+            ├── ba-jobboerse.ts     # Public German API, no key
+            ├── jsearch.ts          # RapidAPI aggregator (reads getSourceCredentials("JSEARCH"))
+            ├── fantastic-jobs.ts   # RapidAPI Active Jobs DB (tsquery title filter)
+            ├── adzuna.ts           # Adzuna /de/search
+            └── jobspy.ts           # Spawns the Python bridge
 ```
 
 ---
@@ -97,14 +126,20 @@ Job_Hunter/
 
 ### CV upload (one-time per CV)
 1. User drops a PDF/DOCX/TXT in `/settings`.
-2. `POST /api/cv` reads the file (≤ 8 MB), routes to `extractCvText` (`unpdf` for PDF, `mammoth` for DOCX, raw for TXT/MD).
-3. `parseCvProfile` calls **Sonnet 4.6** with a `save_cv_profile` tool. Tool result populates `summary / skills / tools / industries / keywords / seniority / yearsExperience`.
-4. `prisma.profile.upsert({ id: "singleton" })` — replaces the previous profile wholesale.
+2. `POST /api/cv` reads the file (≤ 8 MB), routes to `extractCvText` (`unpdf` for PDF, `mammoth` for DOCX, raw for TXT/MD). Output is sanitized of C0 control bytes (Postgres rejects null bytes in `text` columns).
+3. `parseCvProfile` calls **Sonnet 4.6** with a `save_cv_profile` tool. Tool result populates `summary / skills / tools / industries / keywords / seniority / yearsExperience` **plus exactly 3 `suggestedJobTitles`** ordered by best fit.
+4. `prisma.profile.upsert({ where: { userId } })` replaces that user's previous profile wholesale.
+5. `Settings.jobTitles` is overwritten with the 3 suggested titles.
+6. Every `status = NEW` job is hard-deleted so old matches from the previous profile don't pollute the board. `STARRED` and `APPLIED` rows are preserved.
+7. The user is charged `TOKEN.CV_PARSE` (25) for the AI parse — once per upload (inline `PATCH` edits are free).
+
+### CV profile editing (no re-upload)
+- `PATCH /api/cv` accepts `{ summary?, skills?, tools?, industries?, keywords? }`. Zod-validated; trims, drops empty strings, caps lists at 200, summary ≤ 4000 chars. `cv-upload.tsx` renders the inline editor and dispatches `cv-updated` on save so `settings-form.tsx` re-fetches.
 
 ### Refresh (the main loop)
 `POST /api/jobs/refresh` (`src/app/api/jobs/refresh/route.ts`):
 1. Requires a CV profile; refuses with 400 otherwise.
-2. Reads `Settings` (job titles, default locations, enabled sources).
+2. Reads `Settings` (job titles, default locations, default seniority / job types, enabled sources).
 3. **`searchEnabledSources`** (`src/lib/sources/search.ts`) runs sources by tier:
    - **Primary** (`BA_JOBBOERSE`, `JSEARCH`, `FANTASTIC_JOBS`) in parallel.
    - **Backup** (`ADZUNA`) only if the primary tier returned fewer than **10** results total.
@@ -113,16 +148,33 @@ Job_Hunter/
 4. `dedupeRawJobs` collapses cross-source duplicates by SHA-1 of `normalize(title)|normalize(company)|normalize(city)` (after stripping gender markers like `(m/w/d)`).
 5. Filter against the DB by `dedupeHash` — anything already stored (any status, including `DELETED`) is dropped, so previously-hidden jobs stay hidden.
 6. Filter again with `isLikelySameJob` (`src/lib/sources/similarity.ts`) against starred/applied jobs — catches cross-source title variants like *"Senior Product Designer — parental leave cover"*.
-7. **`scoreJobs`** (`src/lib/matcher.ts`) batches the fresh jobs (10 per call) and asks **Haiku 4.5** to populate a `save_scores` tool with `{ score 0-100, explanation, missingSkills[] }`. The profile is sent in `system` with `cache_control: { type: "ephemeral" }` so the same CV doesn't re-cost across batches.
-8. `prisma.job.createMany({ skipDuplicates: true })`.
+7. **Pre-score personalization filter:** when `Settings.defaultSeniority` / `Settings.defaultJobTypes` is narrowed (subset selected), drop jobs that contradict them. `UNKNOWN` always passes (defensive narrow rule — matches `/api/jobs`).
+8. **`scoreJobs`** (`src/lib/matcher.ts`) batches the fresh jobs (10 per call) and asks **Haiku 4.5** to populate a `save_scores` tool with `{ score 0-100, explanation, missingSkills[] }`. The profile is sent in `system` with `cache_control: { type: "ephemeral" }` so the same CV doesn't re-cost across batches. The system prompt is **role-agnostic** — `Settings.jobTitles[0]` and the parsed CV define the candidate's profession; user preferences (seniority, job types, locations) are surfaced as explicit "USER PREFERENCES (from Settings)" with instructions to penalize contradictions.
+9. `prisma.job.createMany({ skipDuplicates: true })`.
+10. **Charge** once the run has succeeded (so a failed run isn't billed): `TOKEN.PER_JOB_DISPLAY` (0.5) per surfaced job (fresh + repeats) plus `TOKEN.PER_JOB_RATING` (1) per freshly-rated job. A repeats-only run still bills the re-display but never re-rates.
+
+### Token billing
+- **`src/lib/tokens.ts`** is the single billing surface. `TOKEN` holds the prices/limits: `SIGNUP_GRANT 150`, `CV_PARSE 25`, `PER_JOB_DISPLAY 0.5`, `PER_JOB_RATING 1`, `MAX_SEARCH_JOBS 150` (cap on jobs considered per refresh), `MAX_BOARD_JOBS 70` (cap on the Inbox listing). Balances move in 0.5 increments, hence `Float`.
+- **`getTokenAccount(userId)`** returns `{ balance, debt }`, applying the one-time 150 signup grant lazily on first access if `tokensGrantedAt` is null (an atomic `updateMany` claim, so it can't double-grant). Called on first Google sign-in (`createUser` event in `src/auth.ts`) and on email/password registration (`/api/register`).
+- **`charge(userId, amount, reason, metadata?)`** never blocks the run: the balance floors at 0 and any overspend is recorded as `tokenDebt` (the UI never shows a negative). One `TokenLedger` row per charge.
+- **`grant(userId, amount, reason)`** pays down debt before crediting balance.
+- **Balance API/UI:** `GET /api/tokens` and `GET /api/account` expose `{ balance, debt }`. The header pill (`src/components/app-header.tsx`) reads `useTokenBalance()`; after any charging action the client calls `notifyTokensUpdated()` (a `tokens-updated` window event) so the pill refetches. `formatTokens()` renders integers as-is, otherwise one decimal.
 
 ### Board listing (`GET /api/jobs`)
-Filters by tab (`new` / `starred` / `applied` → `NEW` / `STARRED` / `APPLIED`), `sources`, `seniority`, `jobTypes`, `locations`. **Defensive filter rule**: a filter only narrows when the user has deselected at least one option; when everything is on (the default), no filter is applied — otherwise `UNKNOWN`-classified jobs would be hidden. When narrowed, `UNKNOWN` is always included so listings aren't lost to weak classification. See lines 49–67 of `src/app/api/jobs/route.ts`.
+Filters by tab (`inbox` / `starred` / `applied` → `NEW` / `STARRED` / `APPLIED` via `TAB_STATUSES` in `src/lib/constants.ts`), `sources`, `seniority`, `jobTypes`, `locations`, `datePosted`. **Defensive filter rule**: a filter only narrows when the user has deselected at least one option; when everything is on (the default), no filter is applied — otherwise `UNKNOWN`-classified jobs would be hidden. When narrowed, `UNKNOWN` is always included so listings aren't lost to weak classification. See lines 49–67 of `src/app/api/jobs/route.ts`.
 
-Order: starred/new sort by `matchScore DESC, fetchedAt DESC`; applied sorts by `appliedAt DESC`.
+`datePosted` accepts `any` / `24h` / `1w` / `2w` / `1m`. Cutoff is applied as `publishedAt >= cutoff OR (publishedAt IS NULL AND fetchedAt >= cutoff)` — aggregators that don't report a publish date use `fetchedAt` so fresh listings don't get silently filtered out.
 
-### Job actions (`PATCH /api/jobs/[id]`)
-Single action enum: `star / unstar / apply / delete`. Deletes set status to `DELETED` (the row stays so dedupe permanently excludes it).
+Order: starred/inbox sort by `matchScore DESC, fetchedAt DESC`; applied sorts by `appliedAt DESC`.
+
+### Job actions
+- `PATCH /api/jobs/[id]` accepts `star / unstar / apply / unapply / delete`. `apply` writes `appliedAt = now()`; `unapply` sets `status = NEW, appliedAt = null`; `delete` sets `status = DELETED` (the row stays so dedupe permanently excludes it).
+- `POST /api/jobs/bulk` accepts `{ action: "delete" | "unapply", ids }`. `unapply` is guarded by `where: { status: "APPLIED" }` so a mistargeted bulk call can't reset arbitrary rows.
+
+### Source credentials
+- `GET /api/sources` reports `{ id, label, tier, connected, configured, editable, credentialSource }` per source. `credentialSource` is `"db" | "env" | "none"`.
+- `GET / PUT / DELETE /api/sources/[id]/credentials` manages per-source secrets in the DB. Returns masked tails only — raw values never cross the wire.
+- Adapters call `getSourceCredentials(sourceId)` from `src/lib/credentials.ts`. Resolution order: DB row → env fallback (named in `SOURCE_CREDENTIAL_SCHEMA`) → undefined. A per-process cache invalidates on `setCredential` / `clearCredential`.
 
 ---
 
@@ -130,10 +182,18 @@ Single action enum: `star / unstar / apply / delete`. Deletes set status to `DEL
 
 `prisma/schema.prisma`:
 
-- **`Profile`** singleton — `fileName`, full `rawCvText`, structured fields, `parsedAt`, `updatedAt`.
-- **`Settings`** singleton — `jobTitles[]`, `defaultLocations[]`, `defaultSeniority[]`, `defaultJobTypes[]`, `defaultSources[]`.
-- **`Job`** — `source` (enum), `externalId`, `dedupeHash @unique`, title/company/location/url/description, `publisher` (for aggregators), `jobType`/`seniority` enums, `publishedAt`, `matchScore`/`matchExplanation`/`missingSkills[]`/`scoredAt`, `status` (`NEW`/`STARRED`/`APPLIED`/`DELETED`), `appliedAt`. Indexed by `status` and `source`.
+- **`User`** — Auth.js account: `email @unique`, `name?`, `image?`, `emailVerified?`, and `password?` (a bcrypt hash for email/password users; `null` for OAuth-only Google users). **Token billing fields:** `tokenBalance Float @default(0)`, `tokenDebt Float @default(0)`, `tokensGrantedAt DateTime?` (null until the one-time signup grant lands). Owns `Profile?`, `Settings?`, `Job[]`, `SourceCredential[]`, `TokenLedger[]` (all `onDelete: Cascade`).
+- **`Account` / `Session` / `VerificationToken`** — standard Auth.js adapter tables. `Session` is unused under the JWT session strategy but kept to satisfy the `@auth/prisma-adapter` contract.
+- **`TokenLedger`** — append-only audit trail of grants/charges. One row per action (not per job): `delta` (negative = charge, positive = grant), `balanceAfter`, `reason` (`"signup_grant" | "cv_parse" | "research"`), `metadata: Json?` (e.g. `{ considered, rated, repeats }` for a research run), `createdAt`. Indexed by `[userId, createdAt]`.
+- **`Profile`** — one per user (`userId String? @unique`) — `fileName`, full `rawCvText`, structured fields, `parsedAt`, `updatedAt`.
+- **`Settings`** — one per user (`userId String? @unique`) — `jobTitles[]`, `defaultLocations[]`, `defaultSeniority[]`, `defaultJobTypes[]`, `defaultSources[]`.
+- **`SourceCredential`** — one row per `(userId, sourceId)` (`@@unique`; PK is a `cuid` `id`). `secrets: Json` holds the per-source field map (e.g. `{ apiKey: "…" }` or `{ appId, appKey }`). UI never reads `secrets` directly — only a masked tail is exposed.
+- **`Job`** — `userId`, `source` (enum), `externalId`, `dedupeHash`, title/company/location/url/description, `publisher` (for aggregators), `jobType`/`seniority` enums, `publishedAt`, `matchScore`/`matchExplanation`/`missingSkills[]`/`scoredAt`, `status` (`NEW`/`STARRED`/`APPLIED`/`DELETED`), `appliedAt`. Dedupe uniqueness is **per user** (`@@unique([userId, dedupeHash])`). Indexed by `[userId, status]`, `status`, and `source`.
 - **Enums** — `JobSourceId` (`BA_JOBBOERSE`, `JSEARCH`, `ADZUNA`, `JOBSPY`, `FANTASTIC_JOBS`, plus 6 legacy values kept for historical rows: `INDEED`, `LINKEDIN`, `STEPSTONE`, `XING`, `GLASSDOOR`, `MONSTER`); `JobStatus`; `Seniority`; `JobType`.
+
+> `userId` is nullable on the four data models only so pre-multi-tenancy rows survive migration as orphans until the first account claims them (`src/lib/claim.ts`). New rows always get the authenticated `userId`, and every query scopes by it.
+
+> The board's tab labels are decoupled from `JobStatus`. The default tab is **Inbox** (id `"inbox"`), which `TAB_STATUSES.inbox = "NEW"` maps to the `NEW` enum value — no migration was needed to rename the tab.
 
 The Prisma client is generated to `src/generated/prisma/` (gitignored) — import types from `@/generated/prisma/client` and `@/generated/prisma/enums`.
 
@@ -147,9 +207,12 @@ npm install
 
 # 2. Environment — two gitignored files (see .env.example):
 #    .env       → DATABASE_URL (Prisma reads .env, not .env.local)
-#    .env.local → ANTHROPIC_API_KEY and source API keys
+#    .env.local → ANTHROPIC_API_KEY, AUTH_SECRET (required), optional
+#                 AUTH_GOOGLE_ID/AUTH_GOOGLE_SECRET, and source API keys
 #
 #    Copy the example, then fill in real values.
+#    Generate AUTH_SECRET with: npx auth secret
+#    Google sign-in is optional — email/password registration works without it.
 
 # 3. Start Postgres in Docker (port 5433)
 npm run db:up
@@ -157,7 +220,8 @@ npm run db:up
 # 4. Apply schema migrations
 npm run db:migrate
 
-# 5. Seed the Settings singleton (jobTitles defaults, all sources enabled)
+# 5. (Optional) Seed — no-op now. Settings/Profile are created per-user on first
+#    use, so there's no global singleton to bootstrap.
 npm run db:seed
 
 # 6. (Optional) Set up the JobSpy Python venv if you want the scraping fallback
@@ -169,8 +233,9 @@ npm run dev   # http://localhost:3000
 ```
 
 **First-run checklist:**
-1. Open `/settings`, drop a CV → wait for the toast.
-2. Open `/`, click **Research jobs** → results stream in 5–60s depending on which sources are configured.
+1. Open `/register` (or `/login` → Google) and create an account → you receive 150 tokens.
+2. Open `/settings`, drop a CV → wait for the toast (costs 25 tokens).
+3. Open `/`, click **Research jobs** → results stream in 5–60s depending on which sources are configured (costs 0.5/job shown + 1/job rated).
 
 ---
 
@@ -184,7 +249,7 @@ npm run dev   # http://localhost:3000
 | `npm run lint` | `eslint` |
 | `npm run db:up` | `docker compose up -d` — Postgres on :5433 |
 | `npm run db:migrate` | `prisma migrate dev` — applies & creates migrations |
-| `npm run db:seed` | `tsx prisma/seed.ts` |
+| `npm run db:seed` | `tsx prisma/seed.ts` — no-op (Settings/Profile are created per-user on first use) |
 | `npm run db:studio` | `prisma studio` — DB browser |
 
 **Not present** (flagged): no `test`, `test:watch`, or `typecheck` script. Typecheck is `npx tsc --noEmit`.
@@ -204,6 +269,8 @@ npm run dev   # http://localhost:3000
 | Variable | Required by | Purpose |
 |---|---|---|
 | `ANTHROPIC_API_KEY` | `getAnthropic()` | CV parsing + job scoring. App refuses to parse a CV without it. |
+| `AUTH_SECRET` | Auth.js (NextAuth) | ✅ Required. Signs the session JWT. Generate with `npx auth secret` (or `openssl rand -base64 33`). |
+| `AUTH_GOOGLE_ID` + `AUTH_GOOGLE_SECRET` | Google provider | Google OAuth client (Cloud Console → Credentials → OAuth client ID, "Web application"). Redirect URI: `http://localhost:3000/api/auth/callback/google`. Optional — email/password registration works without it. |
 | `JSEARCH_API_KEY` | `jsearch` adapter | RapidAPI key for JSearch |
 | `FANTASTIC_JOBS_API_KEY` | `fantastic-jobs` adapter | RapidAPI key for Active Jobs DB. Can reuse the JSearch key (same RapidAPI account). |
 | `ADZUNA_APP_ID` + `ADZUNA_APP_KEY` | `adzuna` adapter | Free credentials at developer.adzuna.com |
@@ -211,7 +278,11 @@ npm run dev   # http://localhost:3000
 
 Sources without their key set surface in the UI as disabled with the hint *"Key needed"* — the toggle is greyed and `configured: false` comes back from `GET /api/sources`.
 
-**Security**: `.env` and `.env.local` are both gitignored. Never paste secrets in chat or in tracked files.
+**DB-backed credentials override env vars.** Once a user saves an API key via **Settings → API credentials**, it lives in the `SourceCredential` table and takes precedence over the matching env var (resolution: `getCredential(sourceId, fieldId)` in `src/lib/credentials.ts` checks DB first, then `process.env[field.envFallback]`). The env entries above are fallbacks — once a DB row exists for a source, you can leave the env entry blank. Clear the DB entry via the editor (or `DELETE /api/sources/[id]/credentials`) to fall back to env again.
+
+The mapping of source → editable fields → env-fallback name lives in `SOURCE_CREDENTIAL_SCHEMA` (`src/lib/credential-schema.ts`). Currently editable: `JSEARCH` (1 field), `FANTASTIC_JOBS` (1 field), `ADZUNA` (2 fields). `BA_JOBBOERSE` and `JOBSPY` have no editable credentials.
+
+**Security**: `.env` and `.env.local` are both gitignored. Never paste secrets in chat or in tracked files. `secrets` columns are never returned over the wire — only a `••••<last4>` masked tail.
 
 ---
 
@@ -227,10 +298,11 @@ Strictly observed in the existing code:
 - **Client components** carry the `"use client"` directive on the top line (`job-board.tsx`, `cv-upload.tsx`, `settings-form.tsx`, etc.). Server components don't.
 - **Zod** is used at every external boundary that takes JSON (`PATCH /jobs/[id]`, `PUT /settings`, `POST /jobs/bulk`). The Settings PUT derives its source-id enum from `ALL_SOURCE_IDS` so adding a source doesn't require updating the schema.
 - **Errors**: route handlers always return `{ error: string }` with a 4xx/5xx code on failure; the client surfaces these via `sonner.toast.error`.
-- **Singleton ids**: any code dealing with `Profile` or `Settings` uses the constants `PROFILE_ID` / `SETTINGS_ID` (= `"singleton"`) from `src/lib/repo.ts`.
+- **Tenant scoping**: every data access is scoped to the authenticated user. API routes call `getSessionUserId()` from `src/lib/repo.ts` first and return a JSON 401 when it's null; page routes are gated by `src/proxy.ts`. `getSettings(userId)` upserts the row on first access; `getProfile(userId)` reads it. There is no `"singleton"` id any more — `Profile` / `Settings` are keyed by `userId @unique`.
+- **Billing**: any route that drives an AI call (`/api/cv` POST, `/api/jobs/refresh`) must `charge()` the user via `src/lib/tokens.ts` after the work succeeds, and the client should call `notifyTokensUpdated()` so the header pill refetches. Don't gate the run on balance — `charge` floors at 0 and records overspend as debt.
 - **Source adapters** all implement `JobSource` from `src/lib/sources/types.ts`: `id / label / tier / connected / configured() / search(params)`. Adding a source requires (a) adding the enum value to `prisma/schema.prisma` and running a migration, (b) the new adapter file, (c) entries in `ALL_SOURCES` (`src/lib/sources/index.ts`) and `SOURCE_META` (`src/lib/constants.ts`), (d) an env var stub in `.env.example`. The orchestrator picks it up automatically based on `tier`.
 
-**Design system** (`src/app/globals.css`): warm cream paper background, deep ink foreground, chartreuse as the single accent. CSS custom properties drive both light and dark modes. Utilities: `.font-display` (Fraunces 550, opsz 96), `.display-italic`, `.eyebrow` (uppercase tracked), `.dot-sep` (middot separator), `.rule`, `.lift-on-hover`.
+**Design system** (`src/app/globals.css`): warm cream paper background, deep ink foreground, chartreuse as the single accent. CSS custom properties drive both light and dark modes. Utilities: `.font-display` (Fraunces 550, opsz 96), `.display-italic`, `.eyebrow` (uppercase tracked), `.dot-sep` (middot separator), `.rule`, `.lift-on-hover`. The favicon (`src/app/icon.svg`) reuses the same palette — ink square (`#1A1233`), paper "M" (`#F5F1E8`), chartreuse dot (`#DCCE40`) — so the browser-tab mark matches the in-app header logo.
 
 ---
 
@@ -244,6 +316,8 @@ Strictly observed in the existing code:
 - **JobSpy needs Python 3.10+**. macOS system Python is often 3.9 — use Homebrew Python (`/opt/homebrew/bin/python3.12`).
 - **Hydration warning at boot** is harmless and comes from browser extensions (`cz-shortcut-listen`).
 - **Memory-resident state**: `src/lib/prisma.ts` keeps a single Prisma client across dev-mode hot reloads via `globalThis`. Don't `new PrismaClient()` anywhere else.
+- **Tokens are internal, not money.** There's no payment provider, top-up flow, or hard quota — the 150-token signup grant is all a user gets, and overspend just accrues `tokenDebt`. The economy exists to make AI cost visible, not to block usage. A real paywall would be a deliberate addition.
+- **Legacy single-tenant data** (`userId = null`) is claimed by the **first** account to register or sign in (`src/lib/claim.ts`, guarded by `userCount === 1`). On a fresh database with no orphan rows this is a no-op.
 
 ---
 

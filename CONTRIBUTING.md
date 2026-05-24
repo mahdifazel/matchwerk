@@ -1,8 +1,8 @@
-# Contributing to Job Hunter
+# Contributing to Matchwerk
 
-This is a single-user personal project. Contributions are welcome but expect a high bar for additions — the project owner is the only daily user and prefers tight, honest code over feature breadth. Read `CLAUDE.md` before making non-trivial changes.
+This is a small, owner-led project — now multi-tenant (Auth.js, Google + email/password), though the owner is still the primary user. Contributions are welcome but expect a high bar for additions: tight, honest code over feature breadth. Read `CLAUDE.md` before making non-trivial changes.
 
-> **Heads-up:** at time of writing the project is **not yet under Git source control** (no `.git/` directory in the working tree). Branch/commit conventions in this document are conventional defaults; once the repo is initialized and remote-hosted, replace this notice with the team's actual conventions.
+The repo is hosted at <https://github.com/mahdifazel/Job-hunter-list>. PRs land against `main`.
 
 ---
 
@@ -20,20 +20,22 @@ Bootstrap:
 ```bash
 npm install
 cp .env.example .env             # then edit DATABASE_URL line
-# Create .env.local with ANTHROPIC_API_KEY (+ any source keys you have)
+# Create .env.local with ANTHROPIC_API_KEY and AUTH_SECRET (both required),
+#   plus any source keys you have. AUTH_SECRET: npx auth secret
+#   Google sign-in (AUTH_GOOGLE_ID/SECRET) is optional — email/password works without it.
 npm run db:up
 npm run db:migrate
-npm run db:seed
+npm run db:seed                  # no-op — Settings/Profile are created per-user on first use
 npm run dev
 ```
 
-Verify the dev server is healthy:
+Verify the dev server is healthy. API routes now require a session, so an unauthenticated request should return a JSON 401:
 
 ```bash
-curl -s http://localhost:3000/api/sources | python3 -m json.tool
+curl -s http://localhost:3000/api/sources   # → {"error":"Sign in to continue."} with HTTP 401
 ```
 
-Every source should appear with `connected: true | false` and `configured: true | false`.
+Sign in at `/register` (or `/login` → Google), then hit `/api/sources` from the browser — every source should appear with `connected: true | false` and `configured: true | false`.
 
 To rebuild the JobSpy venv:
 
@@ -61,7 +63,7 @@ If you touched a Prisma model, run `npm run db:migrate` and commit the generated
 
 ## Branch naming
 
-Once Git is initialized, the suggested convention (until the owner decides otherwise):
+Convention:
 
 - `main` — production-ready code
 - `feat/<short-description>` — new features (`feat/score-history`, `feat/source-stepstone`)
@@ -75,7 +77,7 @@ Keep branches short-lived. Squash on merge.
 
 ## Commit messages
 
-There is no existing commit history to derive a convention from. Recommended default — [Conventional Commits](https://www.conventionalcommits.org/):
+Convention — [Conventional Commits](https://www.conventionalcommits.org/), as used in the existing log:
 
 ```
 <type>(<optional-scope>): <imperative summary, ≤ 72 chars>
@@ -137,6 +139,7 @@ Strictly observed in the existing code. Match them.
 
 - Every JSON-accepting route validates with **Zod** at the top of the handler. Return `{ error: string }` on failure with an appropriate 4xx/5xx status.
 - Source-id enums in Zod should be derived from `ALL_SOURCE_IDS`, not duplicated as a string literal list. (Earlier versions of `/api/settings` had the literal list hardcoded and silently rejected new sources — don't reintroduce that.)
+- A route that drives a Claude call must `charge()` the user (`src/lib/tokens.ts`) **after** the work succeeds — never before, so a failed run isn't billed. Have the client call `notifyTokensUpdated()` so the header balance pill refetches. Don't gate the run on balance; `charge()` floors at 0 and records overspend as debt.
 - Client surfaces failures via `sonner.toast.error(data.error)`.
 
 ### Comments
@@ -163,12 +166,13 @@ Adding a job source:
    }
    ```
 2. Create a migration: `npx prisma migrate dev --name add-<source>-source`.
-3. Create the adapter at `src/lib/sources/<source>.ts` exporting a `JobSource` (see `src/lib/sources/types.ts` for the interface and any existing adapter for a template). Implement `configured()` to return `Boolean(process.env.<KEY>)`.
+3. Create the adapter at `src/lib/sources/<source>.ts` exporting a `JobSource` (see `src/lib/sources/types.ts` for the interface and any existing adapter for a template). Implement `configured()` (async) — read credentials via `getSourceCredentials("NEW_SOURCE")` from `src/lib/credentials.ts` so DB-saved keys take effect at refresh time and env vars are the fallback.
 4. Register it:
    - Add to `ALL_SOURCES` in `src/lib/sources/index.ts`.
    - Add a `SOURCE_META` entry in `src/lib/constants.ts` (id, label, tier, connected, short note).
-5. Document the env var in `.env.example`.
-6. Don't hardcode the new source ID into `searchEnabledSources` or `/api/settings` — both already read from `ALL_SOURCES` / `ALL_SOURCE_IDS`.
+5. If the source has user-editable credentials, add an entry to `SOURCE_CREDENTIAL_SCHEMA` in `src/lib/credential-schema.ts` (field id, label, env-fallback var name, `secret: true/false`). The Settings UI will auto-render an editor for it.
+6. Document the env var(s) in `.env.example`.
+7. Don't hardcode the new source ID into `searchEnabledSources` or `/api/settings` — both already read from `ALL_SOURCES` / `ALL_SOURCE_IDS`.
 
 ### Database migrations
 
@@ -196,7 +200,8 @@ When touching UI:
 
 - **Mock or fake job data.** This is a hard project rule (`CLAUDE.md` § 1).
 - **Direct scraping of LinkedIn / Glassdoor / XING / Indeed / StepStone / Monster** from inside the Next.js process. Use a paid aggregator API (JSearch, Fantastic.jobs, Adzuna) or the open-source JobSpy fallback in its sandboxed venv.
-- **Multi-user / auth scaffolding** without a clear product reason. The project is single-user by design.
+- **Unscoped queries.** Every data read/write must scope by `getSessionUserId()` (API) and live behind `src/proxy.ts` (pages). An unscoped Prisma query is a cross-tenant data leak — see `CLAUDE.md` § 9 and `docs/DECISIONS.md` #1.
+- **A payment provider / hard paywall** bolted on without discussion. Tokens (`src/lib/tokens.ts`) meter AI cost and accrue debt rather than blocking; turning that into a gate is a product decision, not a drive-by change.
 - **PRs without a typecheck-clean diff.** No exceptions.
 
 ---

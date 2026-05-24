@@ -14,3 +14,4 @@ services:
 
 volumes:
   job-hunter-pgdata:
+    name: job_hunter_job-hunter-pgdata

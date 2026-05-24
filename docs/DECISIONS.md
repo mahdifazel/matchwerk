@@ -4,13 +4,15 @@ A record of *why* each non-obvious choice in the codebase exists. New contributo
 
 ---
 
-## 1. Single-user, no authentication
+## 1. Multi-tenant with Auth.js v5 (was: single-user)
 
-**Decision.** `Profile` and `Settings` are Prisma singletons with `id = "singleton"`. There is no users table, no sessions, no auth provider.
+**Decision.** The app authenticates users with **Auth.js v5 (NextAuth)** — a Google provider and an email/password Credentials provider, JWT session strategy (`src/auth.ts` / `src/auth.config.ts`). Every data model (`Profile`, `Settings`, `Job`, `SourceCredential`) carries a `userId` and is scoped to its owner; `Profile` / `Settings` are one-per-user (`userId @unique`). Page routes are gated by `src/proxy.ts`; API routes self-guard via `getSessionUserId()`.
 
-**Why.** The project is the owner's personal job-search tool — one human, one machine. Building multi-tenant scaffolding would more than double the surface area for zero value.
+**History.** It started single-user: `Profile` and `Settings` were Prisma singletons with `id = "singleton"`, no users table, no auth — the project was the owner's personal tool, and multi-tenant scaffolding would have doubled the surface area for zero value. That rewrite has now happened (migration `20260524154733_add_auth_multitenant`). The `userId` columns are nullable purely so the original single-tenant rows survived the migration as orphans; they're claimed by the first account to sign in (see #9), after which every query carries a non-null `userId`.
 
-**Implication.** If this ever becomes multi-user, every singleton lookup (`getProfile`, `getSettings`) and every API route's implicit "current user" needs a real foreign key. That's a deliberate rewrite, not a refactor.
+**Why the change.** Supporting more than one account was worth the surface area once the app was good enough to share. JWT sessions (rather than DB sessions) keep reads off the database on every request; passwords are bcrypt-hashed and OAuth-only users carry `password = null`.
+
+**Implication.** "Current user" is no longer implicit — every new query must scope by `getSessionUserId()`, and every new route must return a JSON 401 when it's null. Forgetting to scope is now a cross-tenant data leak, not a no-op.
 
 ---
 
@@ -100,11 +102,13 @@ A full pairwise similarity sweep across all `RawJob`s would be O(n²) — runnin
 
 ---
 
-## 9. Singleton id `"singleton"` instead of a `boolean isCurrent`
+## 9. Per-user `Profile` / `Settings`, keyed by `userId @unique` (was: singleton id)
 
-**Decision.** Profile and Settings have `id String @id @default("singleton")`. Every read site uses `findUnique({ where: { id: "singleton" } })` or `upsert({ where: { id: "singleton" }, … })`.
+**Decision.** `Profile` and `Settings` are one-per-user: a `cuid` primary key plus `userId String? @unique`. Every read site uses `findUnique({ where: { userId } })` or `upsert({ where: { userId }, … })` via `getProfile(userId)` / `getSettings(userId)` in `src/lib/repo.ts`. There is no `PROFILE_ID` / `SETTINGS_ID` constant any more.
 
-**Why.** It's unambiguous, it makes every accessor a constant-time lookup by primary key, and `upsert` with a known id removes any race window for "create if not exists." The downside (collision if you ever wanted two profiles) is a feature — see decision #1.
+**History.** Originally both used `id String @id @default("singleton")` and every accessor looked up `{ id: "singleton" }` — unambiguous, constant-time, and `upsert` removed the create-if-not-exists race. Multi-tenancy (decision #1) replaced the literal id with the `userId @unique` constraint, which gives the same single-row-per-key guarantee and the same race-free `upsert`, now per tenant.
+
+**Why `userId` nullable.** Only so the original `"singleton"` rows (which had no owner) survived the migration. They're adopted by the first account; thereafter the column is effectively non-null. See the claim mechanism in #1.
 
 ---
 
@@ -219,8 +223,172 @@ The same logic applies to `jobType`. For `source`, no UNKNOWN passes because eve
 
 ## 21. Things the codebase deliberately *doesn't* do
 
-- **No queue / no worker.** Refresh runs inline (decision #1 implies it: one user, one request at a time — there's no concurrency to coordinate).
-- **No telemetry.** Single-user; nothing to monitor.
+- **No queue / no worker.** Refresh runs inline — each refresh is one user's HTTP request, and the per-user `@@unique([userId, dedupeHash])` + `skipDuplicates` make concurrent refreshes by the same user safe without coordination.
+- **No telemetry.** No Sentry / analytics. The `TokenLedger` is the closest thing to usage instrumentation — an append-only record of every charge per user — but it exists for billing transparency, not ops monitoring.
 - **No i18n.** UI is German job market, English UI text. The owner reads both fluently.
 - **No SWR / React Query.** `useEffect + fetch` is sufficient for the handful of endpoints; adding a cache layer would need invalidation strategy we don't have.
 - **No tests.** See `docs/TESTING.md` for the honest reasoning and a roadmap.
+
+---
+
+## 22. DB-backed source credentials with env fallback
+
+**Decision.** A `SourceCredential` Prisma row (one per `JobSourceId`, `secrets: JSONB`) stores per-source API keys edited via Settings → API credentials. `getSourceCredentials(sourceId)` in `src/lib/credentials.ts` resolves DB-first, then `process.env[field.envFallback]` named in `SOURCE_CREDENTIAL_SCHEMA`. The UI never sees the raw value — only a `••••<last4>` mask.
+
+**Why.** Editing `.env.local` and restarting the dev server every time a key needs to change is fragile and slow. DB-backed credentials let the user paste a key in the UI and have it take effect on the next refresh, no restart. Keeping env as the fallback means the existing onboarding (`.env.example` → `.env.local`) still works for first-run and CI.
+
+**Why not skip env entirely.** Because (a) `.env.local` is convenient for development before any DB row exists, and (b) machine reprovisioning shouldn't require manually re-entering keys in the UI — env restores them.
+
+**Why a per-process cache.** The dev app runs as a single process, so a per-process cache is enough; `setCredential` / `clearCredential` invalidate locally on write. The cache is keyed by `(userId, sourceId)`, so one tenant's saved key never leaks into another's resolution. A multi-instance deployment would need a shared cache or short TTL — flagged for whenever deployment is documented.
+
+---
+
+## 23. Editable CV profile without re-upload
+
+**Decision.** `PATCH /api/cv` accepts `{ summary?, skills?, tools?, industries?, keywords? }` — partial Zod-validated updates. `cv-upload.tsx` renders an inline editor (chips with × buttons, summary textarea, Save / Discard).
+
+**Why.** Re-uploading the CV to add a single skill or fix a parser miss is friction and costs a Sonnet call every time. The parsed fields are the matcher's input — letting the user nudge them directly is faster, cheaper, and preserves the rest of the parse.
+
+**What `PATCH` deliberately can't touch.** `seniority`, `yearsExperience`, `rawCvText`, `fileName`, `parsedAt`, and the `suggestedJobTitles` side-effect. Those are CV-derived facts; editing them out of band would diverge from the source of truth.
+
+---
+
+## 24. CV-suggested job titles auto-overwrite Settings.jobTitles
+
+**Decision.** The `save_cv_profile` tool returns exactly 3 `suggestedJobTitles`. `POST /api/cv` overwrites `Settings.jobTitles` with those three on every upload, no merge.
+
+**Why.** Three concrete, model-picked titles is the fastest path to a usable search. Merging would mean stacking titles from different CVs — eventually you'd be searching for "Senior Product Designer" and "Backend Engineer" at once, which the matcher would have to dilute. The user can edit any of the three afterwards in Settings.
+
+**Why exactly 3.** Enough to cover the obvious title variants (e.g. *Senior Product Designer / Product Designer / UX Designer*) without spamming source APIs. Each title fires one query per location per source.
+
+---
+
+## 25. New CV deletes all `NEW` jobs
+
+**Decision.** `POST /api/cv` ends with `prisma.job.deleteMany({ where: { status: "NEW" } })`. `STARRED` and `APPLIED` are preserved.
+
+**Why.** A new CV may represent a completely different profession. Leaving 80 Product Designer matches on the board after uploading a Lawyer CV is misleading — and the dedupe pool would keep those old rows blocking re-fetches of legitimately-different listings. Hard delete (rather than `status = DELETED`) removes them from the dedupe pool too, so genuinely-relevant re-postings can land cleanly.
+
+**Why preserve `STARRED` and `APPLIED`.** Those are user actions and history; even after a career pivot, the record of "I applied to X" should stand. The `Applied` tab still shows them.
+
+---
+
+## 26. Role-agnostic scoring system prompt
+
+**Decision.** `buildSystemPrompt` (`src/lib/matcher.ts`) no longer hardcodes *"You are a job-matching engine for a Product Designer"*. The role is derived from `jobTitles[0]`, and the prompt explicitly instructs the model: *"The candidate's profession is whatever their CV profile says it is — do not assume any specific industry or role beyond what's described below."*
+
+**Why.** Decision #24 already lets the system retarget search; if the scoring prompt still pretended every candidate was a Product Designer, scores for a Lawyer CV would be biased toward design-adjacent jobs. The fix is upstream of any caching or filtering.
+
+**Why keep "in Germany".** The app's source surface is German job boards; the geography stays fixed by infrastructure even if the role doesn't.
+
+---
+
+## 27. User preferences in the scoring system prompt
+
+**Decision.** `scoreJobs` accepts a `ScoringPreferences` object — seniority / job types / locations sourced from `Settings.default*`. They're rendered into the system block as an explicit *"USER PREFERENCES (from Settings)"* section with instructions to penalize contradictions and reward fits. The system block is still ephemeral-cached, so the prefs ride along on the same cache hit.
+
+**Why.** The CV says what the candidate *can* do; Settings says what they *want* right now (e.g. *"open to senior or lead, not internships; Berlin or remote only"*). Without preferences in the prompt, the model would score a Junior contract role in Hamburg the same regardless of whether the user has explicitly excluded all three traits in Settings.
+
+**Why penalize contradictions instead of hard-filtering.** A pre-score filter already drops jobs that contradict narrowed seniority / job types (see #28). The prompt-level signal handles softer cases — e.g. a job whose location is mid-tier preferred — without binary cutoffs.
+
+---
+
+## 28. Pre-score personalization filter
+
+**Decision.** In `POST /api/jobs/refresh`, after dedupe but before scoring, drop fresh jobs whose `seniority` / `jobType` contradict `Settings.defaultSeniority` / `defaultJobTypes`. The defensive narrow rule applies: filter only when subset selected, `UNKNOWN` always passes.
+
+**Why.** Scoring tokens cost money. If the user has explicitly excluded a category in Settings, paying Haiku to score those jobs is waste. Filtering before scoring keeps the API bill aligned with the user's intent.
+
+**Why `UNKNOWN` still passes.** Same reason as the board's `GET /api/jobs` filter (decision #15): the regex-based classifier misses real listings, and a misclassified-as-UNKNOWN senior role shouldn't be silently dropped.
+
+---
+
+## 29. Date posted filter — single-select with fetchedAt fallback
+
+**Decision.** `DATE_POSTED_OPTIONS` in `src/lib/constants.ts` is single-select (`Any / 24h / 1w / 2w / 1m`). The `GET /api/jobs` cutoff is `publishedAt >= cutoff OR (publishedAt IS NULL AND fetchedAt >= cutoff)`.
+
+**Why single-select.** "Past 24 hours" is a strict subset of "past week" — multi-select would create nonsense states (Past 24h *and* Past week selected together).
+
+**Why the `fetchedAt` fallback.** Aggregator sources (especially JSearch and JobSpy) often leave `publishedAt` null. A naive `publishedAt >= cutoff` would silently filter out genuinely-fresh listings just because the source didn't fill the field. Falling back to `fetchedAt` preserves the user's mental model of "show me what's been on the board recently".
+
+---
+
+## 30. Clear List semantics split by tab
+
+**Decision.** `Clear List` on the Inbox and Starred tabs is a non-destructive view-only clear (no API call, no DB write — just `setJobs([])`). On the Applied tab, it opens a confirmation dialog and bulk-unapplies every visible job back to Inbox (`POST /api/jobs/bulk { action: "unapply", ids }`).
+
+**Why split.** On Inbox / Starred, "clear from view" is a triage gesture — the user wants a fresh page to scroll. Persistent removal there would surprise (and the per-card *"Don't Show Again"* already covers permanent deletion). On Applied, "clear" without an undo would lose application history; bulk-unapply is reversible (the jobs go back to Inbox where the user can Apply again).
+
+**Why a confirmation only on Applied.** It's the only branch with a DB write. Non-destructive Clear List doesn't need it.
+
+---
+
+## 31. `unapply` as a first-class action (not the inverse of `apply` via PATCH timing)
+
+**Decision.** `JobAction` and the bulk endpoint both gain `"unapply"` explicitly: `status = NEW, appliedAt = null`. The bulk variant is guarded by `where: { status: "APPLIED" }` so a stale or malicious bulk call can't reset arbitrary rows.
+
+**Why a separate action.** The board's per-card *"Back to Inbox"* button needs a way to move a job from Applied → New that's distinct from `unstar` (which assumes the prior state was `STARRED`). Conflating them at the API would force the client to inspect the row's current state before deciding which action to PATCH.
+
+---
+
+## 32. Renaming the "New" tab to "Inbox" without touching the enum
+
+**Decision.** The default tab label is **Inbox** and the URL query key is `?tab=inbox`. The Prisma `JobStatus.NEW` enum is unchanged. `TAB_STATUSES.inbox = "NEW"` (in `src/lib/constants.ts`) is the only bridge.
+
+**Why.** The internal enum value is correct ("a job that hasn't been acted on yet"). The UI label was misleading because the tab also receives jobs returned from Starred / Applied via `unstar` / `unapply` — those aren't new. "Inbox" matches the existing `Inbox` icon and the standard triage-queue UX pattern (Gmail / Linear / Things).
+
+**Why not rename the enum too.** Migrating a Postgres enum value requires writing every row, generating a new client, and rewriting every `status: "NEW"` literal — for a label change that the user sees but the database doesn't care about. Decoupling tab id from status keeps the enum stable and the UI agile.
+
+---
+
+## 33. PDF / DOCX text sanitization for C0 control bytes
+
+**Decision.** `sanitize()` in `src/lib/cv-parser.ts` strips `\x00-\x08`, `\x0B`, `\x0C`, `\x0E-\x1F` from extracted text before persisting. Tab / newline / carriage return are kept.
+
+**Why.** `unpdf` occasionally emits embedded null bytes (`\x00`) when a PDF contains binary content (image dictionaries, font tables, encrypted streams). Postgres `text` columns reject those: `invalid byte sequence for encoding "UTF8": 0x00`. The fix is a narrow strip at extraction time — broad enough to cover real-world PDFs, narrow enough to leave legitimate whitespace alone.
+
+**Why not strip in the Prisma layer.** The bytes need to be gone before the text hits Claude too (Anthropic accepts them, but they're noise that wastes tokens).
+
+---
+
+## 34. Favicon as `app/icon.svg`, not a generated `.ico`
+
+**Decision.** The favicon lives at `src/app/icon.svg` (Next.js `app/icon` convention) — an SVG that redraws the header logo: ink rounded square (`#1A1233`), paper Fraunces "J" (`#F5F1E8`), chartreuse dot (`#DCCE40`). The scaffold `favicon.ico` was deleted.
+
+**Why SVG over `.ico`.** One vector file scales to every tab/bookmark size, stays crisp on hi-DPI, and is editable in-repo without an image toolchain. Next.js auto-emits the `<link rel="icon" type="image/svg+xml">` tag.
+
+**Why the accent dot sits *inside* the corner (cx=25, cy=7) instead of overflowing like the DOM logo.** The header logo uses negative offsets so the dot pokes past the square — fine in the DOM. In a fixed favicon canvas that overflow gets clipped, so the dot is nudged inside the bounds. The background-colored ring from the DOM version is dropped: at 16–32px it's invisible and only adds SVG weight. Don't "fix" these to match the DOM logo pixel-for-pixel — they're deliberate adaptations to the favicon canvas.
+
+---
+
+## 35. Token economy: meter cost, never block (debt instead of a hard cap)
+
+**Decision.** `src/lib/tokens.ts` charges for AI actions (CV parse 25; research 0.5/job displayed + 1/job rated) against a 150-token signup grant. `charge()` floors the balance at 0 and records any overspend as `tokenDebt` — the run **always proceeds**. Balances are `Float` because charges move in 0.5 increments. Charging happens *after* the work succeeds, and every charge writes one `TokenLedger` row.
+
+**Why meter at all.** AI calls cost real money (Sonnet per upload, Haiku per job × every refresh). Surfacing that as a visible balance makes the cost legible to the user instead of hiding it in an invoice — see decision #3 (the reason there are two models is the same: cost).
+
+**Why debt instead of a hard cutoff.** Blocking a refresh mid-flow because the balance dipped below the run's cost would be a worse experience than letting it finish and going slightly negative-on-paper. Debt keeps the UI honest (the balance pill never shows a negative number) while still recording the overspend. There is no payment provider or top-up flow — this is an internal accounting of usage, not a paywall. Adding a real paywall would gate on `balance >= cost` *before* the run; that's a deliberate future change, not the current behaviour.
+
+**Why charge after success.** A source outage or a Claude error shouldn't cost the user tokens. Billing is the last step of `POST /api/jobs/refresh` and `POST /api/cv`, so a thrown error skips it. A repeats-only refresh (nothing new to rate) still bills the 0.5/job re-display but skips scoring.
+
+**Why `Float`, not `Int` or cents.** The smallest charge is 0.5 (per-job display). Using an integer "half-token" unit would make every price and every display site do ×2/÷2 conversions; a `Float` with 0.5 increments is simpler and the magnitudes are tiny (no rounding-drift concern at this scale). `formatTokens()` renders integers cleanly and everything else to one decimal.
+
+---
+
+## 36. Lazy signup grant via `getTokenAccount`
+
+**Decision.** The 150-token signup grant isn't written at registration time by a dedicated step. Instead `getTokenAccount(userId)` applies it on first access if `tokensGrantedAt` is null, using an atomic `updateMany({ where: { id, tokensGrantedAt: null } })` claim so concurrent callers can't double-grant.
+
+**Why lazy.** Two entry points create users — the Auth.js `createUser` event (first Google sign-in) and `POST /api/register` (email/password). Putting the grant in a single lazily-invoked accessor means both paths get it for free, and — crucially — **accounts that existed before billing was added** still receive their 150 the first time anything reads their balance. No backfill migration was needed.
+
+**Why the atomic claim.** `getTokenAccount` is called from `charge`, the header pill, the account page, and both sign-up paths. Without the `tokensGrantedAt: null` guard in the `updateMany`, two near-simultaneous first reads could each grant 150. The guard makes the grant idempotent: only the first writer flips the timestamp and increments the balance.
+
+---
+
+## 37. Legacy data claimed by the first account
+
+**Decision.** `userId` is nullable on `Profile` / `Settings` / `Job` / `SourceCredential`. `claimOrphanDataForFirstUser` (`src/lib/claim.ts`) adopts all `userId = null` rows for the first account, guarded by `userCount === 1`; it runs from the Auth.js `createUser` event and from `POST /api/register`.
+
+**Why nullable rather than a data migration that invents an owner.** When multi-tenancy landed there were already real rows (the owner's CV, settings, jobs) with no user to attribute them to. Making `userId` nullable let the migration run without fabricating a `User`; the first human to actually sign in inherits them. After that, the column is effectively non-null for all new rows.
+
+**Why guard on `userCount === 1`.** The claim must only ever fire for the *very first* account — otherwise the second person to register would sweep up the first person's data. Counting users and bailing when it's not exactly 1 makes the claim a strict one-shot. On a fresh database with no orphan rows it's a harmless no-op.

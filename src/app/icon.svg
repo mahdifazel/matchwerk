@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <rect width="32" height="32" rx="6" fill="#1A1233"/>
+  <text
+    x="16"
+    y="17"
+    fill="#F5F1E8"
+    font-family="Fraunces, Georgia, 'Times New Roman', serif"
+    font-size="19"
+    font-weight="550"
+    text-anchor="middle"
+    dominant-baseline="central"
+  >M</text>
+  <circle cx="25" cy="7" r="3.25" fill="#DCCE40"/>
+</svg>

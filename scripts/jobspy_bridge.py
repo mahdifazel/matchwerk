@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bridge between the Job Hunter Next.js app and python-jobspy.
+"""Bridge between the Matchwerk Next.js app and python-jobspy.
 
 Reads a single JSON object from argv[1] with this shape:
   {
