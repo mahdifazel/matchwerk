@@ -54,30 +54,40 @@ function EditableChipList({
   }
 
   return (
-    <div>
-      <p className="text-muted-foreground mb-1.5 text-xs uppercase tracking-wide">
-        {label}
-      </p>
-      <div className="flex flex-wrap gap-1.5">
-        {items.map((item) => (
-          <Badge
-            key={item}
-            variant="secondary"
-            className="gap-1 pl-2 pr-1 text-[11px]"
-          >
-            {item}
-            <button
-              type="button"
-              aria-label={`Remove ${item}`}
-              onClick={() => onRemove(item)}
-              className="hover:text-foreground text-muted-foreground -mr-0.5 inline-flex size-3.5 items-center justify-center rounded-full transition-colors"
-            >
-              <X className="size-3" />
-            </button>
-          </Badge>
-        ))}
+    <div className="border-border/60 bg-muted/30 dark:border-white/10 dark:bg-white/[0.03] flex flex-col rounded-xl border p-4">
+      <div className="mb-3 flex items-baseline gap-2">
+        <h4 className="eyebrow text-[0.7rem]">{label}</h4>
+        <span className="text-muted-foreground bg-muted dark:bg-white/10 inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[0.7rem] font-medium tabular-nums">
+          {items.length}
+        </span>
       </div>
-      <div className="mt-2 flex items-center gap-2">
+
+      {items.length > 0 ? (
+        <div className="flex flex-wrap gap-2">
+          {items.map((item) => (
+            <span
+              key={item}
+              className="border-border/70 bg-card text-foreground/90 dark:border-white/10 dark:bg-secondary dark:text-secondary-foreground dark:shadow-none inline-flex items-center gap-1 rounded-full border py-1 pl-3 pr-1.5 text-[0.8rem] font-medium shadow-[0_1px_2px_rgba(26,18,51,0.04)]"
+            >
+              {item}
+              <button
+                type="button"
+                aria-label={`Remove ${item}`}
+                onClick={() => onRemove(item)}
+                className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive inline-flex size-5 items-center justify-center rounded-full transition-colors"
+              >
+                <X className="size-3.5" />
+              </button>
+            </span>
+          ))}
+        </div>
+      ) : (
+        <p className="text-muted-foreground/70 text-xs italic">
+          Nothing added yet.
+        </p>
+      )}
+
+      <div className="mt-3 flex items-center gap-2">
         <Input
           value={draft}
           placeholder={`Add ${label.toLowerCase()}…`}
@@ -88,13 +98,13 @@ function EditableChipList({
               commit();
             }
           }}
-          className="h-8 text-sm"
+          className="bg-card dark:bg-background h-9"
         />
         <Button
           type="button"
           variant="outline"
           size="sm"
-          className="gap-1.5"
+          className="h-9 gap-1.5"
           onClick={commit}
           disabled={!draft.trim()}
         >
@@ -311,9 +321,7 @@ export function CvUpload() {
             </div>
 
             <div>
-              <p className="text-muted-foreground mb-1.5 text-xs uppercase tracking-wide">
-                Summary
-              </p>
+              <p className="eyebrow mb-1.5 text-[0.7rem]">Summary</p>
               <Textarea
                 value={draft.summary}
                 onChange={(e) =>
@@ -322,15 +330,15 @@ export function CvUpload() {
                   )
                 }
                 rows={5}
-                className="text-sm leading-relaxed"
+                className="bg-card dark:bg-background text-sm leading-relaxed"
               />
             </div>
 
-            <div className="flex flex-wrap gap-2">
-              <Badge variant="outline">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="secondary" className="h-7 px-3 text-[0.78rem]">
                 {SENIORITY_LABEL[profile.seniority] ?? profile.seniority}
               </Badge>
-              <Badge variant="outline">
+              <Badge variant="secondary" className="h-7 px-3 text-[0.78rem]">
                 {profile.yearsExperience} yrs experience
               </Badge>
             </div>

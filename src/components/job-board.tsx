@@ -53,6 +53,7 @@ const ALL_FILTERS: Filters = {
   jobTypes: [...ALL_JOB_TYPES],
   sources: [...ALL_SOURCE_IDS],
   datePosted: "any",
+  minScore: 0,
 };
 
 type Tab = "inbox" | "starred" | "applied";
@@ -86,6 +87,7 @@ export function JobBoard() {
       jobTypes: filters.jobTypes.join(","),
       sources: filters.sources.join(","),
       datePosted: filters.datePosted,
+      minScore: String(filters.minScore),
     });
     try {
       const res = await fetch(`/api/jobs?${params.toString()}`);
@@ -349,7 +351,7 @@ export function JobBoard() {
       )}
 
       {/* ── Section header: tabs + filter trigger ─────────────────── */}
-      <section>
+      <section className="!mb-4">
         <div className="flex flex-wrap items-end justify-between gap-4 border-b border-border/70 pb-3">
           <div className="flex items-baseline gap-1">
             <span className="eyebrow">Listings</span>
@@ -456,7 +458,7 @@ export function JobBoard() {
       </section>
 
       {/* ── Results ───────────────────────────────────────────────── */}
-      <section className="!mt-6">
+      <section className="!mt-0">
         {loading ? (
           <div className="grid gap-4">
             {[0, 1, 2].map((i) => (

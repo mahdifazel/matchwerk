@@ -102,7 +102,7 @@ src/components/
 ├── job-board.tsx           # Top-level orchestrating component for /
 ├── job-card.tsx            # One row in the listings grid (Star / Don't Show Again / Apply / Back to Inbox)
 ├── match-badge.tsx         # Exports both MatchBadge (chip) and ScoreMeter (circular SVG)
-├── filter-bar.tsx          # Multi-select dropdown menus + DateFilterMenu (radio)
+├── filter-bar.tsx          # Multi-select dropdown menus + DateFilterMenu (radio) + match-score Slider
 ├── refresh-button.tsx      # Primary CTA, branded
 ├── empty-state.tsx
 ├── cv-upload.tsx           # Drag-and-drop + inline editor (chips, summary textarea, Save/Discard)
@@ -280,6 +280,7 @@ Query string:
                                                    (Berlin → "Berlin", Munich → "München"|"Munich"|"Muenchen", etc.)
   datePosted     any|24h|1w|2w|1m                → publishedAt >= cutoff
                                                    OR (publishedAt IS NULL AND fetchedAt >= cutoff)
+  minScore       0..90 (steps of 10)             → matchScore >= minScore when > 0 (filters directly, not "narrow if subset")
 
 Order:
   status == APPLIED  → appliedAt DESC

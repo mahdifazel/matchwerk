@@ -80,7 +80,7 @@ Job_Hunter/
     │       ├── account/password/route.ts            # PUT set/change password
     │       ├── tokens/route.ts                       # GET token balance + debt
     │       ├── cv/route.ts                          # GET / POST (multipart, charges) / PATCH (edit summary + chips)
-    │       ├── jobs/route.ts                        # GET filtered listings by tab (+ datePosted cutoff)
+    │       ├── jobs/route.ts                        # GET filtered listings by tab (+ datePosted cutoff + minScore threshold)
     │       ├── jobs/refresh/route.ts                # POST → fetch, dedupe, pre-score filter, score, persist, charge
     │       ├── jobs/[id]/route.ts                   # PATCH star/unstar/apply/unapply/delete
     │       ├── jobs/bulk/route.ts                   # POST bulk delete or bulk unapply
@@ -180,9 +180,11 @@ Job_Hunter/
 - **Balance API/UI:** `GET /api/tokens` and `GET /api/account` expose `{ balance, debt }`. The header pill (`src/components/app-header.tsx`) reads `useTokenBalance()`; after any charging action the client calls `notifyTokensUpdated()` (a `tokens-updated` window event) so the pill refetches. `formatTokens()` renders integers as-is, otherwise one decimal.
 
 ### Board listing (`GET /api/jobs`)
-Filters by tab (`inbox` / `starred` / `applied` → `NEW` / `STARRED` / `APPLIED` via `TAB_STATUSES` in `src/lib/constants.ts`), `sources`, `seniority`, `jobTypes`, `locations`, `datePosted`. **Defensive filter rule**: a filter only narrows when the user has deselected at least one option; when everything is on (the default), no filter is applied — otherwise `UNKNOWN`-classified jobs would be hidden. When narrowed, `UNKNOWN` is always included so listings aren't lost to weak classification. See lines 49–67 of `src/app/api/jobs/route.ts`.
+Filters by tab (`inbox` / `starred` / `applied` → `NEW` / `STARRED` / `APPLIED` via `TAB_STATUSES` in `src/lib/constants.ts`), `sources`, `seniority`, `jobTypes`, `locations`, `datePosted`, `minScore`. **Defensive filter rule**: a filter only narrows when the user has deselected at least one option; when everything is on (the default), no filter is applied — otherwise `UNKNOWN`-classified jobs would be hidden. When narrowed, `UNKNOWN` is always included so listings aren't lost to weak classification. See lines 49–67 of `src/app/api/jobs/route.ts`.
 
 `datePosted` accepts `any` / `24h` / `1w` / `2w` / `1m`. Cutoff is applied as `publishedAt >= cutoff OR (publishedAt IS NULL AND fetchedAt >= cutoff)` — aggregators that don't report a publish date use `fetchedAt` so fresh listings don't get silently filtered out.
+
+`minScore` is the **Match** slider in the filter bar (`src/components/ui/slider.tsx`, a base-ui `Slider` wrapper; reversed/active fill, value bubble) — a minimum match-score threshold from 0–90 in steps of 10. When `> 0` it adds `matchScore >= minScore` (showing jobs scoring value → 100); `0` applies no filter. Unlike the defensive multi-selects it filters directly, so high thresholds can legitimately empty the board. The board's per-user **Source** filter UI was removed; `sources` is still accepted by the API and defaults to all.
 
 Order: starred/inbox sort by `matchScore DESC, fetchedAt DESC`; applied sorts by `appliedAt DESC`.
 

@@ -112,6 +112,7 @@ export function SettingsForm() {
                 <Input
                   value={title}
                   placeholder="e.g. Senior Product Designer"
+                  className="bg-card dark:bg-background h-9"
                   onChange={(e) => {
                     const next = [...settings.jobTitles];
                     next[i] = e.target.value;

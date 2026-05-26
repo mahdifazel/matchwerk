@@ -13,6 +13,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Slider } from "@/components/ui/slider";
 import {
   DATE_POSTED_OPTIONS,
   type DatePostedId,
@@ -21,12 +22,18 @@ import {
   SENIORITY_OPTIONS,
 } from "@/lib/constants";
 
+// Match-score filter: a "minimum threshold" slider. Steps of 10 from 0–90;
+// the selected value means "show jobs scoring value% → 100%".
+export const MATCH_SCORE_MAX = 90;
+export const MATCH_SCORE_STEP = 10;
+
 export type Filters = {
   locations: string[];
   seniority: string[];
   jobTypes: string[];
   sources: string[];
   datePosted: DatePostedId;
+  minScore: number;
 };
 
 type Option = { id: string; label: string; disabled?: boolean; hint?: string };
@@ -167,14 +174,37 @@ export function FilterBar({
         onChange={(datePosted) => onChange({ ...filters, datePosted })}
       />
 
+      <div className="order-last flex h-7 w-full min-w-0 items-center gap-3 sm:order-none sm:ml-2 sm:w-auto sm:flex-1">
+        <span className="text-muted-foreground text-[0.8rem] whitespace-nowrap">
+          Match
+        </span>
+        <Slider
+          className="min-w-32 flex-1 sm:max-w-64"
+          min={0}
+          max={MATCH_SCORE_MAX}
+          step={MATCH_SCORE_STEP}
+          value={filters.minScore}
+          onValueChange={(minScore) => onChange({ ...filters, minScore })}
+          inverted
+          showTooltip
+          tooltipContent={(v) => `${v}%+`}
+          ariaLabel="Minimum match score"
+          ariaValueText={(v) => `${v} percent match or higher`}
+        />
+        <span className="text-foreground w-9 shrink-0 text-right text-[0.8rem] font-medium tabular-nums">
+          {filters.minScore}%+
+        </span>
+      </div>
+
       <Button
         variant="ghost"
-        size="sm"
-        className="text-muted-foreground gap-1.5"
+        size="icon"
+        aria-label="Reset filters"
+        title="Reset filters"
+        className="text-muted-foreground ml-auto size-7"
         onClick={onReset}
       >
         <RotateCcw className="size-3.5" />
-        Reset
       </Button>
     </div>
   );
