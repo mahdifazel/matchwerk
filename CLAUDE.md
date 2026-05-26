@@ -293,8 +293,11 @@ npm run dev   # http://localhost:3000
 | `npm run db:migrate` | `prisma migrate dev` — applies & creates migrations |
 | `npm run db:seed` | `tsx prisma/seed.ts` — no-op (Settings/Profile are created per-user on first use) |
 | `npm run db:studio` | `prisma studio` — DB browser |
+| `npm test` | `vitest run` — payment/token-billing suite (needs Postgres up; auto-creates + migrates `jobhunter_test`) |
+| `npm run test:watch` | `vitest` — interactive watch mode |
+| `npm run typecheck` | `tsc --noEmit` |
 
-**Not present** (flagged): no `test`, `test:watch`, or `typecheck` script. Typecheck is `npx tsc --noEmit`.
+**Test scope** (flagged): the only automated suite is the payment/token-billing tests (see §10 and `docs/TESTING.md` §7). The rest of the app is still covered only by typecheck + lint + manual smoke. There is no CI yet.
 
 ---
 
@@ -356,8 +359,8 @@ Strictly observed in the existing code:
 
 ## 10. Things a new developer should know
 
-- **There is no test suite.** `package.json` has no `test` script and no `*.test.*` / `*.spec.*` files. Adding one would be the first contribution — see `docs/TESTING.md`.
-- **There is no CI.** No `.github/workflows`. Pre-merge checks would need to be added.
+- **Tests cover the payment flow only.** A Vitest suite (`npm test`) exercises the Stripe/token-billing money paths — `src/lib/__tests__/{tokens,stripe}.test.ts` plus route tests under `src/app/api/{checkout,checkout/confirm,stripe/webhook,admin/users/[id]}/__tests__/`. It runs against a throwaway `jobhunter_test` Postgres (auto-created + migrated by `test/global-setup.ts`, which refuses any DB not ending in `_test`); Stripe and auth are mocked, the DB is real so the `@unique` idempotency constraints are genuinely exercised. Helpers in `test/helpers/db.ts`; config in `vitest.config.ts` (`@test/*` alias, `.env.test`). Everything else is still untested — see `docs/TESTING.md` §7 for coverage + the manual pre-release checklist.
+- **There is no CI.** No `.github/workflows`, so nothing runs `npm test` automatically yet — run it locally before releasing payment changes.
 - **There is no Dockerfile for the app itself** — only `docker-compose.yml` for Postgres. The app is meant to be run locally with `npm run dev` or built and started with `npm start`. Production deployment is not documented in the repo — see `docs/DEPLOYMENT.md`.
 - **There is no license file.** `package.json` has no `license` field and there is no `LICENSE`. Treat the code as "all rights reserved" until the owner declares one.
 - **Six legacy enum values** (`INDEED`, `LINKEDIN`, etc.) exist on `JobSourceId` for historical rows only. Do not surface them in the UI or add adapters for them — the project memory rejects scraping LinkedIn/Glassdoor directly.

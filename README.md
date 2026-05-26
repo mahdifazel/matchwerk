@@ -99,8 +99,11 @@ Two gitignored files. See `.env.example` for the canonical list and inline docs.
 | `npm run db:migrate` | `prisma migrate dev` |
 | `npm run db:seed` | No-op (Settings/Profile are created per-user on first use) |
 | `npm run db:studio` | Open Prisma Studio |
+| `npm test` | Run the payment/token-billing test suite (Vitest; needs `npm run db:up`) |
+| `npm run test:watch` | Vitest watch mode |
+| `npm run typecheck` | `tsc --noEmit` |
 
-> **No test script is defined.** See `docs/TESTING.md`.
+> **Tests cover the payment flow** (Stripe + token billing) against a throwaway `jobhunter_test` Postgres. The rest of the app relies on typecheck + lint + manual smoke. See `docs/TESTING.md` §7.
 
 ## Job sources
 
@@ -147,7 +150,7 @@ scripts/jobspy_bridge.py # Python sidecar for the JobSpy adapter
 - [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md)
 - [`docs/DECISIONS.md`](./docs/DECISIONS.md)
 - [`docs/DEPLOYMENT.md`](./docs/DEPLOYMENT.md) — *currently flags what's undocumented*
-- [`docs/TESTING.md`](./docs/TESTING.md) — *currently flags the absence of a test suite*
+- [`docs/TESTING.md`](./docs/TESTING.md) — *payment-flow Vitest suite + the manual pre-release checkout checklist*
 
 ## License
 

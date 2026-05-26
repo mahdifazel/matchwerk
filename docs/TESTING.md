@@ -1,16 +1,12 @@
 # Testing
 
-> **Honest summary up front: there is no test suite in this repository.**
+> **Status: a Vitest suite now exists, scoped to the payment / token-billing flow.** See **§7** for how to run it and what it covers. The rest of the app is still verified only by typecheck + ESLint + manual smoke tests, as described below.
 >
-> - `package.json` has no `test`, `test:watch`, `test:coverage`, or `typecheck` script.
-> - No `jest`, `vitest`, `playwright`, `cypress`, `mocha`, or `@testing-library/*` dependency is installed.
-> - No `*.test.ts(x)` or `*.spec.ts(x)` files exist anywhere in `src/`, `prisma/`, or `scripts/`.
-> - There is no `__tests__/`, `__mocks__/`, or `tests/` directory.
-> - There is no CI workflow (`.github/workflows/` does not exist), so nothing would run a test suite even if one were added.
->
-> The shipped quality gate is currently: TypeScript strict-mode typecheck + ESLint + manual `curl`-driven smoke tests.
+> - `package.json` has `test` (`vitest run`), `test:watch`, and `typecheck` (`tsc --noEmit`) scripts.
+> - `vitest` is installed; tests live in `__tests__/` folders next to the code under test and run against a throwaway `jobhunter_test` Postgres (auto-created + migrated by `test/global-setup.ts`).
+> - There is still no CI workflow (`.github/workflows/`), so nothing runs the suite automatically yet — run `npm test` locally before releasing.
 
-This document records (a) what verification *is* possible today, (b) where the highest-value tests would go, and (c) a sketch of how to bring up a real suite. None of the test code below is implemented — it's a contract for what to write.
+This document records (a) what verification *is* possible today, (b) where the highest-value tests would go, (c) a sketch of how to bring up a fuller suite, and (d) **the implemented payment suite + the manual pre-release checkout checklist (§7)**.
 
 ---
 
@@ -323,3 +319,43 @@ Treat every non-trivial change with:
 6. If the change touched dedupe/similarity, hand-craft 2–3 representative inputs and trace them through
 
 This is fragile and time-consuming — which is precisely why the test suite is the highest-leverage thing to add next.
+
+---
+
+## 7. Payment / token-billing test suite (implemented)
+
+The money paths are the riskiest code in the app — a double-credit, a missed refund reversal, or a mis-handled webhook hits customers directly. Those guarantees (credit-once, refund-once, signup-grant-once) are enforced by the **`@unique` constraint on `TokenLedger.stripeSessionId`**, not by in-memory math, so the suite runs against a **real Postgres**.
+
+### Running it
+
+```bash
+npm run db:up      # Docker Postgres on :5433 (same instance as dev)
+npm test           # vitest run — creates + migrates jobhunter_test on first run
+npm run test:watch # interactive
+```
+
+- `.env.test` points `DATABASE_URL` at a separate `jobhunter_test` database. `test/global-setup.ts` creates it (if missing) and runs `prisma migrate deploy`, and **refuses to run unless the DB name ends in `_test`** so the suite can `TRUNCATE` freely without ever touching dev data.
+- `test/helpers/db.ts` provides `resetDb()` (called in `beforeEach`), `seedUser()`, `seedPlan()`, `ledgerCount()`.
+- Tests run sequentially (`fileParallelism: false`) since they share the one database.
+
+### What it covers
+
+| File | Layer | Focus |
+|---|---|---|
+| `src/lib/__tests__/tokens.test.ts` | unit (real DB) | signup grant applied once; `creditCheckoutSession` credits once + **no-op on repeat session id** + amount from the DB plan + debt paydown + unknown-plan throws; `reverseCheckoutTokens` once + overspend→debt; `charge` overspend→debt + no-op; `grant` pays debt first; `adminAdjustTokens` grant/deduct + ledger reasons |
+| `src/lib/__tests__/stripe.test.ts` | unit | `getStripe()` **rejects `sk_live_…`** and a missing key, accepts `sk_test_…` (cached); `hasStripeKey()` truthiness |
+| `src/app/api/checkout/__tests__/route.test.ts` | route (Stripe + auth mocked) | 401 / 503 / 400 guards; price = `round(priceEur*100)`; `metadata {userId, planId}` from the **server** plan |
+| `src/app/api/checkout/confirm/__tests__/route.test.ts` | route | 401 / 404 / 403; pending when unpaid; credits once then **idempotent**; unknown plan → 400 |
+| `src/app/api/stripe/webhook/__tests__/route.test.ts` | route | bad/missing signature → 400; paid completion credits + records `processed`; **redelivered event ≠ double credit**; unpaid / missing metadata → `ignored`; credit failure → 500; other event types → `ignored` |
+| `src/app/api/admin/users/[id]/__tests__/refund.test.ts` | route | role guards; not-a-purchase → 400; already-refunded → 409; happy path reverses tokens once, calls `refunds.create` with the `refund:<sessionId>` idempotency key, audit-logs |
+
+Mocking strategy: **Stripe** (`@/lib/stripe`) and **auth** (`@/lib/repo`, `@/lib/admin`) are `vi.mock`-ed so no network/session is needed; the **database is real** so the idempotency constraints are genuinely exercised. To sanity-check the suite, temporarily defeat an idempotency guard (e.g. the `if (already)` early-return in `creditCheckoutSession`) and confirm a `tokens.test.ts` case goes red.
+
+### Manual pre-release checklist (Stripe test mode)
+
+Automated tests mock Stripe, so do one real round-trip against the Stripe **sandbox** before shipping payment changes (needs `STRIPE_SECRET_KEY=sk_test_…` and a `whsec_…` in `.env.local`):
+
+1. `stripe listen --forward-to localhost:3000/api/stripe/webhook` → copy the printed `whsec_…` into `.env.local`, restart `npm run dev`.
+2. On `/plans`, buy a plan and pay with test card **`4242 4242 4242 4242`** (any future expiry, any CVC, any ZIP).
+3. Verify the balance increases by the plan's token count **exactly once** (header pill + `/account`), **Admin → Stripe Events** shows the event `processed`, and there's a single `purchase` row in the ledger.
+4. Decline card **`4000 0000 0000 0002`** → no credit. Then in **Admin → user detail**, **refund** the purchase → tokens reverse once; refunding again → 409 / "already refunded".
