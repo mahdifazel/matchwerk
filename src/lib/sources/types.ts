@@ -35,7 +35,9 @@ export interface JobSource {
   tier: SourceTier;
   /** False for sources without a working adapter (e.g. JobSpy). */
   connected: boolean;
-  /** True when required credentials are present — in the user's DB row or the env fallback. */
-  configured(userId: string): Promise<boolean>;
+  /** True when required credentials are present — global platform key or env fallback. */
+  configured(): Promise<boolean>;
+  /** Lightweight liveness probe — throws if the source isn't reachable/healthy. */
+  healthCheck(): Promise<void>;
   search(params: SearchParams): Promise<RawJob[]>;
 }

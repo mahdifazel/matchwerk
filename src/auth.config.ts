@@ -1,4 +1,5 @@
 import type { NextAuthConfig } from "next-auth";
+import type { UserRole } from "@/generated/prisma/enums";
 
 // Edge-safe Auth.js config. This is the slice that the middleware loads, so it
 // MUST NOT import Prisma, bcrypt, or any Node-only dependency. Providers and the
@@ -15,7 +16,9 @@ export const authConfig = {
       const isLoggedIn = !!auth?.user;
       const isAuthPage =
         nextUrl.pathname.startsWith("/login") ||
-        nextUrl.pathname.startsWith("/register");
+        nextUrl.pathname.startsWith("/register") ||
+        nextUrl.pathname.startsWith("/forgot-password") ||
+        nextUrl.pathname.startsWith("/reset-password");
 
       if (isAuthPage) {
         if (isLoggedIn) return Response.redirect(new URL("/", nextUrl));
@@ -24,9 +27,11 @@ export const authConfig = {
       return isLoggedIn;
     },
     // `token.sub` is the user id (set automatically by NextAuth for both the
-    // Credentials and Google providers). Surface it on the session.
+    // Credentials and Google providers). Surface id + role on the session.
+    // `token.role` is resolved (with DB lookup) in the jwt callback in auth.ts.
     session({ session, token }) {
       if (token.sub) session.user.id = token.sub;
+      session.user.role = (token as { role?: UserRole }).role ?? "USER";
       return session;
     },
   },

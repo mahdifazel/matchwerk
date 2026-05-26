@@ -133,13 +133,28 @@ export const jsearch: JobSource = {
   label: "JSearch",
   tier: "primary",
   connected: true,
-  configured: async (userId) => {
-    const c = await getSourceCredentials(userId, "JSEARCH");
+  configured: async () => {
+    const c = await getSourceCredentials("JSEARCH");
     return Boolean(c.apiKey);
   },
 
+  async healthCheck() {
+    const { apiKey } = await getSourceCredentials("JSEARCH");
+    if (!apiKey) throw new Error("No API key.");
+    const url = new URL(ENDPOINT);
+    url.searchParams.set("query", "designer in Germany");
+    url.searchParams.set("page", "1");
+    url.searchParams.set("num_pages", "1");
+    url.searchParams.set("country", "de");
+    const res = await fetch(url, {
+      headers: { "X-RapidAPI-Key": apiKey, "X-RapidAPI-Host": HOST },
+      cache: "no-store",
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  },
+
   async search(params: SearchParams): Promise<RawJob[]> {
-    const { apiKey } = await getSourceCredentials(params.userId, "JSEARCH");
+    const { apiKey } = await getSourceCredentials("JSEARCH");
     if (!apiKey) return [];
 
     const titles = params.jobTitles.slice(0, MAX_TITLES);

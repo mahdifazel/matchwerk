@@ -2,6 +2,8 @@
 
 A walk through how Matchwerk is put together: the system shape, the directory layout, what flows through each layer, and the technical decisions that shaped them. Everything below is derived from the code; speculative parts are flagged.
 
+> **Update (2026-05-25).** Since this document was written, several systems were added: **Stripe payments** (token purchases + refunds), a **multi-provider AI layer** (Claude + Gemini, `src/lib/ai/*`, swap in admin), **global/admin-managed source credentials** (no longer per-user), **DB-backed plans**, and a full **admin backoffice** (`/admin`) with roles, analytics, balance gates + rate limits, GDPR tools, impersonation, announcements, budget alerts, API health, and a Stripe-events inspector. The core pipeline below (auth → sources → dedupe → score → persist → charge) is still accurate; see `CLAUDE.md` and `CHANGELOG.md` for the newer subsystems. Inline notes flag the spots that changed.
+
 ---
 
 ## 1. System shape
@@ -325,7 +327,7 @@ interface JobSource {
 }
 ```
 
-`configured()` is async because credential resolution goes through `getSourceCredentials(sourceId)` in `src/lib/credentials.ts`, which checks the `SourceCredential` table before falling back to env. Adapters read keys via the same helper at request time so a freshly-saved DB key takes effect on the next refresh without a server restart.
+`configured()` is async because credential resolution goes through `getSourceCredentials(sourceId)` in `src/lib/credentials.ts`. **(Updated 2026-05-25: keys are now GLOBAL, not per-user.)** It resolves the `PlatformCredential` table (keyed by env-var name) before falling back to env, via `src/lib/platform.ts`. Adapters also implement `healthCheck()` (a minimal live probe for Admin → API Health). Keys are managed in **Admin → System Settings → Job sources**; a freshly-saved key takes effect on the next refresh without a restart.
 
 The orchestrator (`src/lib/sources/search.ts`) walks `ALL_SOURCES` and buckets them by `tier`. For each tier it checks `blockedReason()`:
 
@@ -422,10 +424,10 @@ The design system lives entirely in `src/app/globals.css` under `@theme inline` 
 ## 7. Key technical decisions (in brief — see `docs/DECISIONS.md` for the why)
 
 - **Multi-tenant with Auth.js v5.** Google + email/password; JWT session. Every row is `userId`-scoped — there is no `"singleton"` id any more (`Profile` / `Settings` are `userId @unique`). Page routes gated by `src/proxy.ts`, API routes by `getSessionUserId()`. Legacy single-tenant rows are claimed by the first account.
-- **In-app token economy.** `src/lib/tokens.ts` meters AI usage (150-token signup grant; charges for CV parse and research). No payment provider — `charge()` never blocks the run, it floors the balance at 0 and records overspend as debt.
+- **In-app token economy + Stripe (2026-05-25).** `src/lib/tokens.ts` meters AI usage (150-token signup grant; charges for CV parse and research) and tokens are now **purchasable via Stripe** (sandbox) on `/plans`. `charge()` still floors at 0 and records overspend as debt, but two **balance gates** (`src/lib/limits.ts`) now refuse CV parse below 25 tokens and Research at 0.
 - **Real jobs only.** No fixtures, no mock data. Stubs return empty arrays rather than fake rows.
-- **Two Claude models.** Sonnet 4.6 (CV parse, quality) + Haiku 4.5 (scoring, cost/speed) with ephemeral cache on the CV system block.
-- **Tool-use over JSON parsing.** Both CV parsing and scoring use Anthropic tool-use with `tool_choice` forced — the SDK returns a typed `input` object, no JSON-from-text regex needed.
+- **Multi-provider AI (2026-05-25).** A provider abstraction (`src/lib/ai/*`, `runWithAi`) routes CV parse + scoring through the active provider (Claude Sonnet/Haiku or Gemini Flash) with a fallback chain, switchable in admin. Claude keeps the ephemeral cache on the CV system block.
+- **Tool-use / structured output over JSON parsing.** Claude uses tool-use with `tool_choice` forced; Gemini uses `responseSchema` JSON — both return a typed object, no JSON-from-text regex.
 - **Role-agnostic scoring.** The system prompt derives the candidate's profession from `Settings.jobTitles[0]` and the CV — no hardcoded profession — so a new CV genuinely retargets matching.
 - **Tier-driven orchestrator.** Adding a source = adding an enum value + an adapter; the orchestrator picks it up automatically.
 - **DB-backed credentials with env fallback.** `getSourceCredentials(sourceId)` resolves DB → env. Saved keys take effect on the next refresh; clearing the DB row falls back to env.
@@ -455,7 +457,7 @@ The design system lives entirely in `src/app/globals.css` under `@theme inline` 
 
 - **No queue / no worker.** Refresh runs synchronously inside the HTTP request.
 - **No retry.** A source that errors loses that refresh — there's no exponential backoff or scheduled re-fetch.
-- **No rate limiting / quota tracking.** Adapters hit the source APIs as fast as `Promise.all` lets them.
+- ~~No rate limiting / quota tracking.~~ **(Added 2026-05-25.)** Per-user **balance gates** (CV needs ≥ 25 tokens; Research needs > 0) and admin-configurable **rate limits** (research/hour, CV/day) now gate the two AI actions (`src/lib/limits.ts`), and **budget alerts** flag daily spend on the dashboard. Source-API fan-out within a refresh is still unthrottled.
 - **No telemetry.** No `@vercel/analytics`, no Sentry, no Posthog — there's nothing to report failures to.
 - **No tests.** See `docs/TESTING.md`.
 - **No deployment recipe.** See `docs/DEPLOYMENT.md`.

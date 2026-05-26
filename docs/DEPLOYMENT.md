@@ -24,10 +24,15 @@ Derived from the codebase:
 4. **Environment variables** as documented in `.env.example`:
    - `DATABASE_URL` (required)
    - `AUTH_SECRET` (required — signs the session JWT; generate with `npx auth secret`). In production also set `AUTH_URL`/`NEXTAUTH_URL` to the deployed origin and `AUTH_TRUST_HOST=true` behind a proxy.
-   - `ANTHROPIC_API_KEY` (required for any CV upload or refresh)
+   - `ANTHROPIC_API_KEY` (required for the Claude AI path — CV upload + scoring; or set `GEMINI_API_KEY` and make Gemini the active provider in admin)
+   - `SUPER_ADMIN_EMAILS` (optional, comma-separated — bootstraps admin access; set this to reach `/admin` at all)
+   - `GEMINI_API_KEY` (optional — enables the Gemini AI provider)
+   - `STRIPE_SECRET_KEY` + `STRIPE_WEBHOOK_SECRET` (optional — token purchases; **test keys only**, `sk_test_…`. The webhook secret comes from a Stripe webhook endpoint / `stripe listen`.)
    - `AUTH_GOOGLE_ID` + `AUTH_GOOGLE_SECRET` (optional — Google sign-in; register the prod redirect URI `https://<host>/api/auth/callback/google`. Email/password works without it.)
-   - `JSEARCH_API_KEY`, `FANTASTIC_JOBS_API_KEY`, `ADZUNA_APP_ID`, `ADZUNA_APP_KEY` (optional, per source)
+   - `JSEARCH_API_KEY`, `FANTASTIC_JOBS_API_KEY`, `ADZUNA_APP_ID`, `ADZUNA_APP_KEY` (optional, per source — env fallbacks; can also be set in admin)
    - `JOBSPY_SITES` (optional, JobSpy only)
+
+   > **Note (2026-05-25):** AI + source keys are also settable in the **admin backoffice** (stored in `PlatformCredential`, DB-first over env). The env vars above remain the first-run/CI fallback.
 5. **If JobSpy is needed:** Python 3.10+ runtime alongside Node + the `.venv-jobspy/` venv with `python-jobspy` installed. Most managed Node hosts don't provide a Python runtime — this means JobSpy effectively cannot run on Vercel, Netlify, or similar serverless platforms. Use a container host or a VM if you need it.
 6. **Persistent disk for Postgres** (if you're hosting the DB yourself).
 
@@ -200,7 +205,7 @@ In rough priority order:
 5. **CI pipeline** that runs typecheck + lint + build on every push. No `.github/workflows/` exist.
 6. **Observability** — log aggregation, error tracking (Sentry), uptime monitoring. None currently configured.
 7. **Secrets management** — secrets currently live in `.env.local`. In production, route them through your platform's secret store.
-8. **Rate-limit & cost controls** — refresh can issue dozens of API calls; without throttling a runaway client (or a CRON misconfiguration if you add scheduled refreshes) can burn quota fast. The in-app token economy (`src/lib/tokens.ts`) makes per-user AI spend *visible* via the `TokenLedger`, but it does **not** enforce a ceiling — `charge()` accrues debt rather than blocking. A real cost control would gate the run on `balance >= cost` before spending.
+8. **Rate-limit & cost controls** — *partially built (2026-05-25).* `src/lib/limits.ts` now enforces **balance gates** (CV ≥ 25 tokens; Research > 0 → 402) and admin-configurable **rate limits** (research/hour, CV/day → 429) on the two AI actions, and `src/lib/budget.ts` raises **dashboard alerts** on daily token/request/error thresholds. Still open: the source-API fan-out within a single refresh is unthrottled, and there's no global spend ceiling across users.
 
 ---
 

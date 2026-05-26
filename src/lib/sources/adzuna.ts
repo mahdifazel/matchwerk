@@ -116,13 +116,26 @@ export const adzuna: JobSource = {
   label: "Adzuna",
   tier: "backup",
   connected: true,
-  configured: async (userId) => {
-    const c = await getSourceCredentials(userId, "ADZUNA");
+  configured: async () => {
+    const c = await getSourceCredentials("ADZUNA");
     return Boolean(c.appId && c.appKey);
   },
 
+  async healthCheck() {
+    const { appId, appKey } = await getSourceCredentials("ADZUNA");
+    if (!appId || !appKey) throw new Error("No credentials.");
+    const url = new URL(`${BASE_URL}/1`);
+    url.searchParams.set("app_id", appId);
+    url.searchParams.set("app_key", appKey);
+    url.searchParams.set("what", "designer");
+    url.searchParams.set("results_per_page", "1");
+    url.searchParams.set("content-type", "application/json");
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  },
+
   async search(params: SearchParams): Promise<RawJob[]> {
-    const { appId, appKey } = await getSourceCredentials(params.userId, "ADZUNA");
+    const { appId, appKey } = await getSourceCredentials("ADZUNA");
     if (!appId || !appKey) return [];
 
     const titles = params.jobTitles.slice(0, MAX_TITLES);

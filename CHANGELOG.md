@@ -4,7 +4,48 @@ All notable changes to this project are documented here. Format follows [Keep a 
 
 ## [Unreleased]
 
-Multi-tenancy with Auth.js, and an in-app token economy that meters AI usage.
+Multi-tenancy with Auth.js, an in-app token economy, **Stripe payments**, a
+**multi-provider AI layer (Claude + Gemini)**, and a full **admin backoffice**.
+
+### Added — Stripe payments & plans
+
+- **Token purchases via Stripe Checkout** (sandbox/test mode). `/plans` pricing page → `POST /api/checkout` creates a hosted Checkout Session per plan → redirect → `POST /api/checkout/confirm` (idempotent crediting on return) and `POST /api/stripe/webhook` (authoritative). `src/lib/stripe.ts` refuses any non-`sk_test_` key.
+- **Idempotent crediting** keyed on a new unique `TokenLedger.stripeSessionId` (`creditCheckoutSession`), so the webhook and the success redirect can both run safely. New `TokenReason` values: `purchase`, `admin_grant`, `admin_deduct`, `refund`.
+- **DB-backed plans** — new `Plan` table (seeded Starter/Plus/Pro). `src/lib/plans.ts` is now type + formatters only; data lives in `src/lib/plans-repo.ts`. Pricing page, checkout, and crediting resolve plans from the DB. Admin-editable at **Admin → Plans & Pricing**.
+- **Refunds** — `POST /api/admin/users/[id]/refund` issues a Stripe refund (idempotency key) and reverses the granted tokens (`reverseCheckoutTokens`); Refund button + "Refunded" badge on each purchase row.
+- **Webhook inspector** — new `WebhookEvent` table records every verified event; **Admin → Stripe Events** viewer.
+- New env: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`. New dep: `stripe`.
+
+### Added — Multi-provider AI (Claude + Gemini)
+
+- **Provider abstraction** in `src/lib/ai/*` (`types`/`claude`/`gemini`/`index`). `runWithAi()` tries the active provider, then a fallback chain (enabled + configured only). `cv-parser.ts` / `matcher.ts` delegate to it; the old `src/lib/anthropic.ts` was removed.
+- **Gemini Flash** (`@google/genai`, `gemini-2.5-flash`, structured JSON output) wired alongside Claude; switch the active provider, fallback order, and per-provider enable/disable in **Admin → System Settings**, no redeploy.
+- **Global platform config + secrets** — new `PlatformCredential` (keyed by env-var name, DB → env fallback) and `AppSetting` (JSON config) tables; `src/lib/platform.ts`. New env: `GEMINI_API_KEY`. New dep: `@google/genai`.
+- **Request logging** — new `RequestLog` table records every AI provider attempt (provider, op, ok, duration, error), powering analytics + API health.
+
+### Added — Source credentials are now global (moved out of the client)
+
+- `src/lib/credentials.ts` rewritten to resolve source keys **globally** (`PlatformCredential` → env), no longer per-user. Adapters' `configured()` take no argument; per-source global enable/disable lives in `AppSetting`.
+- The **"API credentials"** and **"Sources"** sections were **removed from client Settings**; managed in **Admin → System Settings → Job sources** instead. The per-user `/api/sources/[id]/credentials` route + `CredentialEditor` were deleted; the per-user `SourceCredential` model is now legacy/unused.
+
+### Added — Admin backoffice
+
+- **Roles** — `UserRole` enum (`USER` / `ADMIN` / `SUPER_ADMIN`) + `disabledAt` on `User`; Super Admin bootstrapped via `SUPER_ADMIN_EMAILS`. Role is DB-authoritative (`src/lib/admin.ts`); deactivation blocks sign-in and all API access. New `AdminAuditLog` table records every privileged action.
+- **`/admin`** sidebar app: **Dashboard** (analytics — KPIs, daily trend, token flow, jobs by source, top users, provider usage, failed requests; CSV + PDF export), **User Management** (search/filter, activate/deactivate, edit, token grant/deduct, refunds, GDPR export/erase, impersonate), **Plans & Pricing**, **System Settings** (AI providers, job sources, rate limits, budget alerts), **API Health**, **Announcements**, **Stripe Events**, and **Role Management** (Super Admin only).
+- New env: `SUPER_ADMIN_EMAILS`. New dep: `pdf-lib` (PDF reports).
+
+### Added — Guardrails & ops
+
+- **Balance gates** (new policy for two actions): CV upload requires ≥ 25 tokens; Research requires balance > 0 — both return 402 otherwise. **Rate limits** (admin-configurable: research/hour, CV/day) return 429. `src/lib/limits.ts`, enforced in `/api/cv` + `/api/jobs/refresh`.
+- **Budget/cost alerts** — admin-set daily thresholds (tokens, AI requests, AI errors) surface a banner on the dashboard. `src/lib/budget.ts`.
+- **GDPR** — per-user data export (JSON, secrets stripped) + hard erasure (cascade delete), admin-side and self-serve in `/account`. `src/lib/gdpr.ts`.
+- **Impersonate** — admins can "view as user" via a signed cookie (`src/lib/impersonation.ts`); amber banner + audited start/stop.
+- **In-app announcements** — admin-posted dismissible banner (`Announcement` table, `AnnouncementBanner`).
+- **API health monitoring** — live ping/latency for AI providers + job sources (`src/lib/health.ts`, **Admin → API Health**).
+
+### Migrations
+
+`add_token_purchase`, `add_admin_roles`, `add_platform_config`, `add_plans`, `add_request_log`, `add_announcement`, `add_webhook_event` (hand-written, applied via `prisma migrate deploy`).
 
 ### Added — Accounts & multi-tenancy
 

@@ -71,3 +71,12 @@ export async function PATCH(request: Request) {
   });
   return NextResponse.json({ ok: true, name: user.name });
 }
+
+// GDPR self-serve erasure — deletes the signed-in user and all their data
+// (cascades). The client signs out afterwards.
+export async function DELETE() {
+  const userId = await getSessionUserId();
+  if (!userId) return UNAUTHORIZED;
+  await prisma.user.delete({ where: { id: userId } });
+  return NextResponse.json({ ok: true });
+}

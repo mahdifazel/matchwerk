@@ -1,11 +1,20 @@
 import type { JobSourceId } from "@/generated/prisma/enums";
+import { ALL_SOURCE_IDS } from "@/lib/constants";
 import { SOURCE_CREDENTIAL_SCHEMA } from "@/lib/credential-schema";
-import { prisma } from "@/lib/prisma";
+import {
+  clearPlatformCredential,
+  getAppSetting,
+  getCredentialState,
+  getPlatformCredential,
+  setAppSetting,
+  setPlatformCredential,
+  type CredentialOrigin,
+} from "@/lib/platform";
 
-// NEVER log values from this module. The whole point is to keep raw key
-// strings on the server side of the wire and out of stderr.
+// NEVER log values from this module. Source API keys are now GLOBAL platform
+// secrets (managed in Admin → System Settings), resolved DB → env fallback,
+// keyed by each field's canonical env-var name.
 
-// Re-export the schema + helpers so server-side callers have one import site.
 export {
   hasCredentialEditor,
   SOURCE_CREDENTIAL_SCHEMA,
@@ -15,186 +24,108 @@ export type {
   SourceCredentialSchema,
 } from "@/lib/credential-schema";
 
-export type CredentialSource = "db" | "env" | "none";
+export type CredentialSource = CredentialOrigin;
 
-// Process cache, keyed by `${userId}:${sourceId}`, invalidated on set/clear.
-const cache = new Map<string, Record<string, string>>();
-
-const cacheKey = (userId: string, sourceId: JobSourceId) =>
-  `${userId}:${sourceId}`;
-
-async function loadFromDb(
-  userId: string,
-  sourceId: JobSourceId,
-): Promise<{ secrets: Record<string, string>; updatedAt: Date } | null> {
-  const row = await prisma.sourceCredential.findUnique({
-    where: { userId_sourceId: { userId, sourceId } },
-  });
-  if (!row) return null;
-  const secrets = (row.secrets ?? {}) as Record<string, string>;
-  return { secrets, updatedAt: row.updatedAt };
-}
-
-/**
- * Resolved value for a single field, DB-first, env fallback.
- * Returns undefined when neither has a non-empty value. The env fallback is a
- * shared default (the operator's keys) available to any user without a DB row.
- */
-export async function getCredential(
-  userId: string,
-  sourceId: JobSourceId,
-  fieldId: string,
-): Promise<string | undefined> {
-  const schema = SOURCE_CREDENTIAL_SCHEMA[sourceId];
-  if (!schema) return undefined;
-  const field = schema.fields.find((f) => f.id === fieldId);
-  if (!field) return undefined;
-
-  const key = cacheKey(userId, sourceId);
-  const fromCache = cache.get(key);
-  if (fromCache && fromCache[fieldId]) return fromCache[fieldId];
-
-  if (!fromCache) {
-    const row = await loadFromDb(userId, sourceId);
-    if (row) {
-      cache.set(key, row.secrets);
-      if (row.secrets[fieldId]) return row.secrets[fieldId];
-    } else {
-      cache.set(key, {});
-    }
-  }
-
-  const fromEnv = process.env[field.envFallback];
-  return fromEnv && fromEnv.length > 0 ? fromEnv : undefined;
-}
-
-/** All fields for an adapter to consume. Missing fields are simply absent. */
+/** All credential fields for a source, resolved globally. Missing fields absent. */
 export async function getSourceCredentials(
-  userId: string,
   sourceId: JobSourceId,
 ): Promise<Record<string, string>> {
   const schema = SOURCE_CREDENTIAL_SCHEMA[sourceId];
   if (!schema) return {};
   const out: Record<string, string> = {};
   for (const field of schema.fields) {
-    const v = await getCredential(userId, sourceId, field.id);
+    const v = await getPlatformCredential(field.envFallback);
     if (v !== undefined) out[field.id] = v;
   }
   return out;
 }
 
-export async function setCredential(
-  userId: string,
-  sourceId: JobSourceId,
-  values: Record<string, string>,
-): Promise<{ updatedAt: Date }> {
-  const schema = SOURCE_CREDENTIAL_SCHEMA[sourceId];
-  if (!schema) {
-    throw new Error(`Source ${sourceId} has no credential editor.`);
-  }
-  // Trim, drop empty strings (so empty submissions don't persist as set).
-  const clean: Record<string, string> = {};
-  for (const field of schema.fields) {
-    const raw = values[field.id];
-    if (typeof raw === "string" && raw.trim().length > 0) {
-      clean[field.id] = raw.trim();
-    }
-  }
-  const row = await prisma.sourceCredential.upsert({
-    where: { userId_sourceId: { userId, sourceId } },
-    create: { userId, sourceId, secrets: clean },
-    update: { secrets: clean },
-  });
-  cache.set(cacheKey(userId, sourceId), clean);
-  return { updatedAt: row.updatedAt };
-}
-
-export async function clearCredential(
-  userId: string,
-  sourceId: JobSourceId,
-): Promise<void> {
-  await prisma.sourceCredential
-    .delete({ where: { userId_sourceId: { userId, sourceId } } })
-    .catch(() => undefined); // delete is idempotent: no row, no harm
-  cache.delete(cacheKey(userId, sourceId));
-}
-
-export type CredentialStatus = {
-  source: CredentialSource;
-  configured: boolean;
-  lastUpdated: Date | null;
-  /** Per-field state suitable for the editor UI. Never contains the raw value. */
-  fields: {
-    id: string;
-    label: string;
-    secret: boolean;
-    set: boolean;
-    masked: string | null;
-    source: CredentialSource;
-  }[];
+export type SourceFieldStatus = {
+  id: string;
+  label: string;
+  secret: boolean;
+  envFallback: string;
+  set: boolean;
+  masked: string | null;
+  origin: CredentialSource;
 };
 
-function mask(value: string): string {
-  if (value.length <= 4) return "•".repeat(value.length);
-  return `••••${value.slice(-4)}`;
-}
+export type SourceCredentialStatus = {
+  source: CredentialSource;
+  configured: boolean;
+  fields: SourceFieldStatus[];
+};
 
-export async function getCredentialStatus(
-  userId: string,
+export async function getSourceCredentialStatus(
   sourceId: JobSourceId,
-): Promise<CredentialStatus | null> {
+): Promise<SourceCredentialStatus | null> {
   const schema = SOURCE_CREDENTIAL_SCHEMA[sourceId];
   if (!schema) return null;
-
-  const row = await loadFromDb(userId, sourceId);
-  // Keep the cache hot for adapters that run next.
-  cache.set(cacheKey(userId, sourceId), row?.secrets ?? {});
-
-  const fields = schema.fields.map((f) => {
-    const dbValue = row?.secrets[f.id];
-    if (dbValue && dbValue.length > 0) {
-      return {
-        id: f.id,
-        label: f.label,
-        secret: f.secret,
-        set: true,
-        masked: mask(dbValue),
-        source: "db" as CredentialSource,
-      };
-    }
-    const envValue = process.env[f.envFallback];
-    if (envValue && envValue.length > 0) {
-      return {
-        id: f.id,
-        label: f.label,
-        secret: f.secret,
-        set: true,
-        masked: mask(envValue),
-        source: "env" as CredentialSource,
-      };
-    }
-    return {
+  const fields: SourceFieldStatus[] = [];
+  for (const f of schema.fields) {
+    const state = await getCredentialState(f.envFallback);
+    fields.push({
       id: f.id,
       label: f.label,
       secret: f.secret,
-      set: false,
-      masked: null,
-      source: "none" as CredentialSource,
-    };
-  });
-
-  const allSet = fields.every((f) => f.set);
-  // The rollup "source" is DB if any field is satisfied from DB, otherwise env
-  // if any field is satisfied from env, otherwise "none".
-  let rollup: CredentialSource = "none";
-  if (allSet) {
-    rollup = fields.some((f) => f.source === "db") ? "db" : "env";
+      envFallback: f.envFallback,
+      set: state.origin !== "none",
+      masked: state.masked,
+      origin: state.origin,
+    });
   }
+  const allSet = fields.every((f) => f.set);
+  const rollup: CredentialSource = allSet
+    ? fields.some((f) => f.origin === "db")
+      ? "db"
+      : "env"
+    : "none";
+  return { source: rollup, configured: allSet, fields };
+}
 
-  return {
-    source: rollup,
-    configured: allSet,
-    lastUpdated: row?.updatedAt ?? null,
-    fields,
-  };
+/** Sets non-empty fields; empty values are left untouched (use clear to remove). */
+export async function setSourceCredentials(
+  sourceId: JobSourceId,
+  values: Record<string, string>,
+): Promise<void> {
+  const schema = SOURCE_CREDENTIAL_SCHEMA[sourceId];
+  if (!schema) throw new Error(`Source ${sourceId} has no credential editor.`);
+  for (const field of schema.fields) {
+    const raw = values[field.id];
+    if (typeof raw === "string" && raw.trim().length > 0) {
+      await setPlatformCredential(field.envFallback, raw.trim());
+    }
+  }
+}
+
+export async function clearSourceCredentials(sourceId: JobSourceId): Promise<void> {
+  const schema = SOURCE_CREDENTIAL_SCHEMA[sourceId];
+  if (!schema) return;
+  for (const field of schema.fields) {
+    await clearPlatformCredential(field.envFallback);
+  }
+}
+
+// ── Global source enable/disable ─────────────────────────────────────────────
+
+const SOURCES_DISABLED_KEY = "sources_disabled";
+
+export async function getDisabledSourceIds(): Promise<JobSourceId[]> {
+  return getAppSetting<JobSourceId[]>(SOURCES_DISABLED_KEY, []);
+}
+
+export async function setSourceEnabled(
+  sourceId: JobSourceId,
+  enabled: boolean,
+): Promise<void> {
+  const disabled = new Set(await getDisabledSourceIds());
+  if (enabled) disabled.delete(sourceId);
+  else disabled.add(sourceId);
+  await setAppSetting<JobSourceId[]>(SOURCES_DISABLED_KEY, [...disabled]);
+}
+
+/** Source ids eligible to run in a search: all sources minus globally-disabled. */
+export async function getEnabledSourceIds(): Promise<JobSourceId[]> {
+  const disabled = new Set(await getDisabledSourceIds());
+  return ALL_SOURCE_IDS.filter((id) => !disabled.has(id));
 }

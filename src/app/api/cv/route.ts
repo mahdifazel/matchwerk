@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { extractCvText, parseCvProfile } from "@/lib/cv-parser";
+import { checkCvUpload } from "@/lib/limits";
 import { prisma } from "@/lib/prisma";
 import { getProfile, getSessionUserId, getSettings } from "@/lib/repo";
 import { charge, TOKEN } from "@/lib/tokens";
@@ -32,6 +33,12 @@ export async function GET() {
 export async function POST(request: Request) {
   const userId = await getSessionUserId();
   if (!userId) return UNAUTHORIZED;
+
+  // Balance gate (≥ 25 tokens) + per-day rate limit, before any expensive work.
+  const gate = await checkCvUpload(userId);
+  if (!gate.allowed) {
+    return NextResponse.json({ error: gate.error }, { status: gate.status });
+  }
 
   let formData: FormData;
   try {

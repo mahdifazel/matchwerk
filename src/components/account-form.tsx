@@ -1,5 +1,8 @@
 "use client";
 
+import { Coins } from "lucide-react";
+import Link from "next/link";
+import { signOut } from "next-auth/react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -53,7 +56,54 @@ export function AccountForm() {
         hasPassword={account.hasPassword}
         onSet={() => setAccount({ ...account, hasPassword: true })}
       />
+      <DataSection />
     </div>
+  );
+}
+
+function DataSection() {
+  const [busy, setBusy] = useState(false);
+
+  async function deleteAccount() {
+    if (
+      !confirm(
+        "Permanently delete your account and ALL your data (CV, jobs, history)? This cannot be undone.",
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    const res = await fetch("/api/account", { method: "DELETE" });
+    if (!res.ok) {
+      setBusy(false);
+      toast.error("Could not delete your account.");
+      return;
+    }
+    toast.success("Your account has been deleted.");
+    signOut({ callbackUrl: "/login" });
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Your data</CardTitle>
+        <CardDescription>
+          Download a copy of your data, or permanently delete your account.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-wrap gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => window.open("/api/account/export", "_blank")}
+        >
+          Download my data
+        </Button>
+        <Button variant="destructive" size="sm" onClick={deleteAccount} disabled={busy}>
+          Delete my account
+        </Button>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -67,11 +117,17 @@ function TokensSection({ balance, debt }: { balance: number; debt: number }) {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3 text-sm">
-        <div className="flex flex-col gap-0.5">
-          <span className="text-muted-foreground text-xs">Balance</span>
-          <span className="font-display text-2xl tabular-nums">
-            {formatTokens(balance)}
-          </span>
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div className="flex flex-col gap-0.5">
+            <span className="text-muted-foreground text-xs">Balance</span>
+            <span className="font-display text-2xl tabular-nums">
+              {formatTokens(balance)}
+            </span>
+          </div>
+          <Button size="sm" nativeButton={false} render={<Link href="/plans" />}>
+            <Coins />
+            Buy tokens
+          </Button>
         </div>
         {debt > 0 && (
           <p className="text-muted-foreground text-xs">

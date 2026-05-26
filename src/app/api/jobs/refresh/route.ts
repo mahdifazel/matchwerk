@@ -9,6 +9,8 @@ import { scoreJobs } from "@/lib/matcher";
 import { prisma } from "@/lib/prisma";
 import { getProfile, getSessionUserId, getSettings } from "@/lib/repo";
 import { charge, TOKEN } from "@/lib/tokens";
+import { getEnabledSourceIds } from "@/lib/credentials";
+import { checkResearch } from "@/lib/limits";
 import { searchEnabledSources } from "@/lib/sources";
 import { dedupeRawJobs } from "@/lib/sources/dedupe";
 import { isLikelySameJob } from "@/lib/sources/similarity";
@@ -37,6 +39,12 @@ async function runRefresh() {
     );
   }
 
+  // Balance gate (> 0 tokens) + per-hour rate limit, before any fetching.
+  const gate = await checkResearch(userId);
+  if (!gate.allowed) {
+    return NextResponse.json({ error: gate.error }, { status: gate.status });
+  }
+
   const settings = await getSettings(userId);
 
   // Locations to search: from saved settings, falling back to all.
@@ -49,9 +57,11 @@ async function runRefresh() {
     selectedLocations.length > 0 ? selectedLocations : LOCATION_OPTIONS;
 
   // 1. Tiered fetch across enabled sources (primary → backup → fallback).
+  // Which sources run is now a GLOBAL admin setting, not per-user.
+  const enabledSourceIds = await getEnabledSourceIds();
   const { jobs: allRaw, reports } = await searchEnabledSources(
     { userId, jobTitles: settings.jobTitles, locations },
-    settings.defaultSources,
+    enabledSourceIds,
   );
   const scanned = allRaw.length;
 

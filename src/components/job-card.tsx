@@ -4,13 +4,10 @@ import { ArrowUpRight, Check, Star, Trash2, Undo2 } from "lucide-react";
 import { ScoreMeter } from "@/components/match-badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { SOURCE_META } from "@/lib/constants";
 import type { JobDTO } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 export type JobAction = "star" | "unstar" | "apply" | "unapply" | "delete";
-
-const SOURCE_LABEL = new Map(SOURCE_META.map((s) => [s.id, s.label]));
 
 const SENIORITY_LABEL: Record<string, string> = {
   JUNIOR: "Junior",
@@ -79,22 +76,13 @@ export function JobCard({
         {/* Headline + score */}
         <div className="flex items-start justify-between gap-5">
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <span className="eyebrow text-[0.7rem]">
-                {SOURCE_LABEL.get(job.source) ?? job.source}
-                {job.publisher && (
-                  <span className="text-muted-foreground/70 normal-case tracking-normal">
-                    {" "}
-                    · via {job.publisher}
-                  </span>
-                )}
-              </span>
-              {isApplied && job.appliedAt && (
+            {isApplied && job.appliedAt && (
+              <div className="flex items-center gap-2">
                 <span className="bg-accent/25 text-accent-foreground inline-flex h-5 items-center rounded-full px-2 text-[0.65rem] font-medium tracking-tight">
                   Applied {formatDate(job.appliedAt)}
                 </span>
-              )}
-            </div>
+              </div>
+            )}
             <h3 className="font-display mt-2 text-[1.45rem] leading-[1.18] tracking-tight sm:text-[1.6rem]">
               {job.title}
             </h3>

@@ -19,11 +19,10 @@ export type SourceRunReport = {
 async function blockedReason(
   source: JobSource,
   enabled: Set<JobSourceId>,
-  userId: string,
 ): Promise<string | null> {
   if (!source.connected) return "adapter not implemented";
-  if (!enabled.has(source.id)) return "disabled in settings";
-  if (!(await source.configured(userId))) return "API key not configured";
+  if (!enabled.has(source.id)) return "disabled by admin";
+  if (!(await source.configured())) return "API key not configured";
   return null;
 }
 
@@ -44,7 +43,7 @@ async function runTier(
   let total = 0;
   await Promise.all(
     sources.map(async (source) => {
-      const reason = await blockedReason(source, enabled, params.userId);
+      const reason = await blockedReason(source, enabled);
       if (reason) {
         reports.push({
           id: source.id,

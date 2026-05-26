@@ -1,10 +1,11 @@
 "use client";
 
-import { Coins, LogOut, Settings as SettingsIcon, UserRound } from "lucide-react";
+import { Coins, LogOut, Settings as SettingsIcon, Shield, UserRound } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { signOut, useSession } from "next-auth/react";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { LOW_TOKEN_THRESHOLD } from "@/lib/plans";
 import { formatTokens, useTokenBalance } from "@/lib/use-token-balance";
 import {
   DropdownMenu,
@@ -75,14 +76,25 @@ function TokenPill() {
   const { balance } = useTokenBalance();
   if (status !== "authenticated" || balance == null) return null;
 
+  const low = balance < LOW_TOKEN_THRESHOLD;
+
   return (
-    <span
-      className="border-border/70 bg-card text-foreground inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-sm font-medium tabular-nums"
-      title="Token balance"
+    <Link
+      href="/plans"
+      title={low ? "Low balance — buy more tokens" : "Token balance — buy more"}
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-sm font-medium tabular-nums transition-colors",
+        low
+          ? "border-accent/60 bg-accent/15 hover:bg-accent/25 text-foreground"
+          : "border-border/70 bg-card hover:bg-muted text-foreground",
+      )}
     >
-      <Coins className="text-muted-foreground size-3.5" />
+      <Coins
+        className={cn("size-3.5", low ? "text-foreground" : "text-muted-foreground")}
+      />
       {formatTokens(balance)}
-    </span>
+      {low && <span className="text-xs font-semibold">· Top up</span>}
+    </Link>
   );
 }
 
@@ -94,6 +106,7 @@ function UserMenu() {
   const user = session.user;
   const display = user.name || user.email || "Account";
   const initial = (user.name || user.email || "?").charAt(0).toUpperCase();
+  const isAdmin = user.role === "ADMIN" || user.role === "SUPER_ADMIN";
 
   return (
     <DropdownMenu>
@@ -122,10 +135,23 @@ function UserMenu() {
           <UserRound />
           Account
         </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => router.push("/plans")}>
+          <Coins />
+          Buy tokens
+        </DropdownMenuItem>
         <DropdownMenuItem onClick={() => router.push("/settings")}>
           <SettingsIcon />
           Settings
         </DropdownMenuItem>
+        {isAdmin && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => router.push("/admin")}>
+              <Shield />
+              Admin panel
+            </DropdownMenuItem>
+          </>
+        )}
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={() => signOut({ callbackUrl: "/login" })}>
           <LogOut />

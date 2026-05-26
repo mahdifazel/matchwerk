@@ -1,6 +1,6 @@
 import type { Profile } from "@/generated/prisma/client";
 import type { JobType, Seniority } from "@/generated/prisma/enums";
-import { getAnthropic, MODELS } from "./anthropic";
+import { runWithAi } from "@/lib/ai";
 
 export type JobToScore = {
   id: string;
@@ -25,42 +25,6 @@ export type JobScore = {
 };
 
 const BATCH_SIZE = 10;
-
-const SCORE_TOOL = {
-  name: "save_scores",
-  description: "Save match scores for the batch of jobs.",
-  input_schema: {
-    type: "object" as const,
-    properties: {
-      scores: {
-        type: "array",
-        items: {
-          type: "object",
-          properties: {
-            id: { type: "string", description: "The job id being scored." },
-            score: {
-              type: "integer",
-              description: "Match score 0-100 (how well this job fits the candidate).",
-            },
-            explanation: {
-              type: "string",
-              description:
-                "One concise sentence explaining why this job matches (or doesn't).",
-            },
-            missingSkills: {
-              type: "array",
-              items: { type: "string" },
-              description:
-                "Skills/requirements the role likely needs that the CV doesn't show. Empty if none.",
-            },
-          },
-          required: ["id", "score", "explanation", "missingSkills"],
-        },
-      },
-    },
-    required: ["scores"],
-  },
-};
 
 function buildSystemPrompt(
   profile: Profile,
@@ -119,49 +83,26 @@ async function scoreBatch(
   prefs: ScoringPreferences,
   batch: JobToScore[],
 ): Promise<Map<string, JobScore>> {
-  const anthropic = getAnthropic();
-  const response = await anthropic.messages.create({
-    model: MODELS.scoring,
-    max_tokens: 2048,
-    system: [
-      {
-        type: "text",
-        text: buildSystemPrompt(profile, jobTitles, prefs),
-        cache_control: { type: "ephemeral" },
-      },
-    ],
-    tools: [SCORE_TOOL],
-    tool_choice: { type: "tool", name: "save_scores" },
-    messages: [
-      {
-        role: "user",
-        content: `Score these jobs:\n\n${batch
-          .map(
-            (j) =>
-              `id: ${j.id}\ntitle: ${j.title}\ncompany: ${j.company}\nlocation: ${j.location}`,
-          )
-          .join("\n\n")}`,
-      },
-    ],
-  });
+  const systemPrompt = buildSystemPrompt(profile, jobTitles, prefs);
+  const userPrompt = `Score these jobs:\n\n${batch
+    .map(
+      (j) =>
+        `id: ${j.id}\ntitle: ${j.title}\ncompany: ${j.company}\nlocation: ${j.location}`,
+    )
+    .join("\n\n")}`;
 
-  const block = response.content.find((b) => b.type === "tool_use");
+  const raw = await runWithAi(
+    (provider) => provider.scoreBatch(systemPrompt, userPrompt),
+    "scoring",
+  );
+
   const result = new Map<string, JobScore>();
-  if (!block || block.type !== "tool_use") return result;
-
-  const input = block.input as {
-    scores?: Array<{
-      id: string;
-      score: number;
-      explanation: string;
-      missingSkills: string[];
-    }>;
-  };
-  for (const s of input.scores ?? []) {
+  for (const s of raw) {
+    if (!s || typeof s.id !== "string") continue;
     result.set(s.id, {
       score: Math.max(0, Math.min(100, Math.round(s.score))),
-      explanation: s.explanation ?? "",
-      missingSkills: s.missingSkills ?? [],
+      explanation: typeof s.explanation === "string" ? s.explanation : "",
+      missingSkills: Array.isArray(s.missingSkills) ? s.missingSkills : [],
     });
   }
   return result;

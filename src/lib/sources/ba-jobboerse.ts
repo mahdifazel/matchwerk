@@ -134,6 +134,14 @@ export const baJobboerse: JobSource = {
   connected: true,
   configured: async () => true, // public API, no key required
 
+  async healthCheck() {
+    const url = new URL(BASE_URL);
+    url.searchParams.set("was", "designer");
+    url.searchParams.set("size", "1");
+    const res = await fetch(url, { headers: { "X-API-Key": API_KEY }, cache: "no-store" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  },
+
   async search(params: SearchParams): Promise<RawJob[]> {
     const titles = params.jobTitles.slice(0, MAX_TITLES);
     const targets = buildTargets(params);

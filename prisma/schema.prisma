@@ -33,6 +33,14 @@ enum JobStatus {
   DELETED
 }
 
+/// Platform access level. USER = normal client. ADMIN = full backoffice access
+/// except managing admins. SUPER_ADMIN = everything, including managing admins.
+enum UserRole {
+  USER
+  ADMIN
+  SUPER_ADMIN
+}
+
 enum Seniority {
   JUNIOR
   MID
@@ -62,6 +70,11 @@ model User {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
+  // Backoffice access level and activation state. `disabledAt` is null for active
+  // accounts; setting it deactivates the user (blocks sign-in + all API access).
+  role       UserRole  @default(USER)
+  disabledAt DateTime?
+
   // Token billing. Balances use 0.5 increments (hence Float). `tokenDebt` records
   // overspend beyond a zeroed balance so the UI never shows a negative number.
   // `tokensGrantedAt` is null until the one-time signup grant is applied.
@@ -85,13 +98,113 @@ model TokenLedger {
   userId       String
   delta        Float // negative = charge, positive = grant
   balanceAfter Float
-  reason       String // "signup_grant" | "cv_parse" | "research"
+  reason       String // "signup_grant" | "cv_parse" | "research" | "purchase"
   metadata     Json?
+  // Set only on token purchases. Unique so a Stripe Checkout session can be
+  // credited at most once, no matter how many times the webhook + success
+  // redirect both fire (idempotency key for crediting).
+  stripeSessionId String? @unique
   createdAt    DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, createdAt])
+}
+
+/// Append-only record of privileged backoffice actions (token grants, status
+/// changes, role changes, etc.). Self-contained — stores actor/target ids AND
+/// emails so the trail survives if a referenced user is later deleted.
+model AdminAuditLog {
+  id          String   @id @default(cuid())
+  actorId     String
+  actorEmail  String
+  action      String
+  targetId    String?
+  targetEmail String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([actorId])
+}
+
+/// Admin-posted announcement shown as an in-app banner to all users. `level`
+/// is "info" | "warning"; an optional [startsAt, endsAt] window gates display.
+model Announcement {
+  id        String    @id @default(cuid())
+  message   String
+  level     String    @default("info")
+  active    Boolean   @default(true)
+  startsAt  DateTime?
+  endsAt    DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([active])
+}
+
+/// Verified Stripe webhook events, for the admin inspector. PK is the Stripe
+/// event id so retries upsert the same row (idempotent storage).
+model WebhookEvent {
+  id        String   @id
+  type      String
+  status    String // "processed" | "ignored" | "error"
+  summary   String?
+  error     String?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+/// Lightweight log of outbound AI requests (one row per provider attempt,
+/// including fallbacks). Powers the admin analytics: provider usage, failed
+/// requests, and error logs. Append-only; not user-scoped.
+model RequestLog {
+  id         String   @id @default(cuid())
+  kind       String   @default("ai")
+  provider   String?
+  operation  String?
+  ok         Boolean
+  durationMs Int      @default(0)
+  error      String?
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([provider])
+}
+
+/// Global platform key/value config (active AI provider, fallback order,
+/// per-provider enable flags, etc.). Admin-managed; non-secret.
+model AppSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+}
+
+/// Global platform secrets — AI and job-source API keys, managed in admin.
+/// Keyed by canonical env-var name; resolution is DB row → process.env fallback.
+/// Never returned raw over the wire (masked tails only).
+model PlatformCredential {
+  name      String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+/// A token purchase plan shown on /plans and used by Stripe checkout.
+/// Admin-editable (Phase 4) — was previously hardcoded in src/lib/plans.ts.
+/// `id` is a stable slug ("starter"/"plus"/"pro" or custom) referenced by
+/// Stripe session metadata, so it must not change once a purchase exists.
+model Plan {
+  id             String   @id
+  name           String
+  tagline        String   @default("")
+  priceEur       Float
+  tokens         Int
+  durationMonths Int
+  recommended    Boolean  @default(false)
+  sortOrder      Int      @default(0)
+  active         Boolean  @default(true)
+  updatedAt      DateTime @updatedAt
 }
 
 /// Auth.js linked OAuth account (e.g. Google).

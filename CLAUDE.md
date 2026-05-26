@@ -6,7 +6,9 @@ A guide for engineers (and Claude) working on this codebase. Read top-to-bottom 
 
 ## 1. Project overview
 
-**Matchwerk** is a multi-tenant web app that pulls real Product Design (and other) job listings from German job boards, deduplicates them across sources, scores each listing against the signed-in user's CV via Claude, and presents them in a board where the user can star, mark applied, or hide jobs.
+**Matchwerk** is a multi-tenant web app that pulls real Product Design (and other) job listings from German job boards, deduplicates them across sources, scores each listing against the signed-in user's CV via the **active AI provider (Claude or Gemini)**, and presents them in a board where the user can star, mark applied, or hide jobs.
+
+**Payments & admin.** Tokens (the in-app AI currency) are **purchasable via Stripe** (sandbox/test) on `/plans`. A role-gated **admin backoffice** at `/admin` manages users, tokens, plans/pricing, AI providers + source API keys, rate limits, budget alerts, announcements, analytics, API health, and Stripe events. Roles: `USER` / `ADMIN` / `SUPER_ADMIN` (see §4).
 
 **Auth & tenancy.** Users sign in with **Google** or with **email/password** (open registration). Auth is handled by **Auth.js v5 (NextAuth)** — see `src/auth.ts` / `src/auth.config.ts`. Every data model (`Profile`, `Settings`, `Job`, `SourceCredential`) carries a `userId` and is scoped to its owner; there is one `Profile` and one `Settings` row **per user** (`userId @unique`), not a global singleton. Page routes are gated by `src/proxy.ts` (Next 16 "Proxy", formerly Middleware); API routes self-guard with a JSON 401 via `getSessionUserId()` in `src/lib/repo.ts`.
 
@@ -22,15 +24,17 @@ The original audience is one person — the project owner, searching Product Des
 
 | Layer | Technology | Notes |
 |---|---|---|
-| Framework | Next.js 16.2.6 (App Router, Turbopack dev) | `next.config.ts` declares `pg`, `@prisma/adapter-pg`, `mammoth`, `unpdf` as `serverExternalPackages` |
+| Framework | Next.js 16.2.6 (App Router, Turbopack dev) | `next.config.ts` declares `pg`, `@prisma/adapter-pg`, `mammoth`, `unpdf`, `stripe` as `serverExternalPackages` |
 | Language | TypeScript 5, strict, ES2017 target, `module: esnext` | Alias `@/*` → `./src/*` |
 | UI | React 19, Tailwind CSS 4, `shadcn/ui` (style: `base-nova`), `@base-ui/react` primitives, `lucide-react` icons, `next-themes` | Tailwind 4 is config-less — tokens live in `src/app/globals.css` under `@theme inline` |
 | Fonts | `Inter` (sans body), `Fraunces` (editorial display), `JetBrains Mono` (tabular) — all via `next/font/google` with CSS vars `--font-jh-sans`, `--font-jh-display`, `--font-jh-mono` |
 | Database | PostgreSQL 16 (alpine) in Docker on port **5433** | `docker-compose.yml`. Credentials: `jobhunter` / `jobhunter` / db `jobhunter` |
 | ORM | Prisma 7.8 with `@prisma/adapter-pg` | Custom client output at `src/generated/prisma` (gitignored) |
 | Auth | Auth.js v5 (`next-auth@5.0.0-beta`) + `@auth/prisma-adapter`, `bcryptjs` for password hashing | Google OAuth + email/password credentials; JWT session strategy. See `src/auth.ts` / `src/auth.config.ts` |
-| Billing | In-app token economy (`src/lib/tokens.ts`) | Float balances + debt on `User`, append-only `TokenLedger`. No external payment provider |
-| AI | Anthropic SDK 0.96.0 | Sonnet 4.6 for CV parsing, Haiku 4.5 for scoring with CV cached as ephemeral system block |
+| Billing | In-app token economy (`src/lib/tokens.ts`) | Float balances + debt on `User`, append-only `TokenLedger`. **Balance gates** on CV/Research + admin-set **rate limits** (`src/lib/limits.ts`) |
+| Payments | Stripe (`stripe` SDK), **test mode only** | Hosted Checkout for token top-ups; `src/lib/stripe.ts` rejects non-`sk_test_` keys. DB-backed `Plan` table |
+| AI | Anthropic SDK + Google GenAI (`@google/genai`) | Provider abstraction in `src/lib/ai/*`: active provider (Claude Sonnet/Haiku or Gemini Flash) + fallback chain; switchable in admin |
+| Admin | Role-gated backoffice (`/admin`) | `UserRole` enum; DB-authoritative guards (`src/lib/admin.ts`); `AdminAuditLog`; reports via CSV + `pdf-lib` |
 | File parsing | `mammoth` (DOCX), `unpdf` (PDF) — plus inline TXT/MD |
 | Validation | `zod` 4 |
 | Toasts | `sonner` |
@@ -45,9 +49,9 @@ The original audience is one person — the project owner, searching Product Des
 Job_Hunter/
 ├── docker-compose.yml          # Postgres 16 on :5433
 ├── prisma/
-│   ├── schema.prisma           # Models: User, Account, Session, VerificationToken, Profile, Settings, SourceCredential, Job, TokenLedger; enums
+│   ├── schema.prisma           # User(+role/disabledAt), Account, Session, Profile, Settings, SourceCredential(legacy), Job, TokenLedger, AdminAuditLog, AppSetting, PlatformCredential, Plan, RequestLog, Announcement, WebhookEvent; enums (+ UserRole)
 │   ├── seed.ts                 # No-op — Settings/Profile are created per-user on first use
-│   └── migrations/             # init, add_aggregator_sources, add_fantastic_jobs_source, add_source_credentials, add_auth_multitenant, add_token_billing
+│   └── migrations/             # …add_auth_multitenant, add_token_billing, add_token_purchase, add_admin_roles, add_platform_config, add_plans, add_request_log, add_announcement, add_webhook_event
 ├── prisma.config.ts            # Loads schema + DATABASE_URL via dotenv
 ├── scripts/
 │   └── jobspy_bridge.py        # Python bridge for the JobSpy adapter
@@ -65,8 +69,10 @@ Job_Hunter/
     │   ├── page.tsx            # Board page (job feed)
     │   ├── login/page.tsx      # Sign-in (Google + email/password)
     │   ├── register/page.tsx   # Open registration (email/password)
-    │   ├── account/page.tsx    # Account settings: display name, password, token balance
-    │   ├── settings/page.tsx   # CV upload + search preferences
+    │   ├── account/page.tsx    # Account settings: name, password, token balance, GDPR export/delete
+    │   ├── settings/page.tsx   # CV upload + job titles (source keys/Sources moved to admin)
+    │   ├── plans/page.tsx      # Token purchase plans → Stripe Checkout
+    │   ├── admin/              # Role-gated backoffice: layout + dashboard, users/[id], plans, system, health, announcements, webhooks, roles
     │   └── api/
     │       ├── auth/[...nextauth]/route.ts          # Auth.js handlers (signin/callback/signout)
     │       ├── register/route.ts                    # POST email/password registration (+ claim orphans, signup grant)
@@ -79,32 +85,45 @@ Job_Hunter/
     │       ├── jobs/[id]/route.ts                   # PATCH star/unstar/apply/unapply/delete
     │       ├── jobs/bulk/route.ts                   # POST bulk delete or bulk unapply
     │       ├── settings/route.ts                    # GET + PUT
-    │       ├── sources/route.ts                     # GET runtime source status (+ editable, credentialSource)
-    │       └── sources/[id]/credentials/route.ts    # GET / PUT / DELETE source credentials (masked)
+    │       ├── sources/route.ts                     # GET runtime source status (now global creds; per-user [id]/credentials route deleted)
+    │       ├── checkout/route.ts, checkout/confirm/route.ts  # Stripe Checkout session + return confirmation (credits)
+    │       ├── stripe/webhook/route.ts              # Verifies events, credits, records to WebhookEvent
+    │       ├── announcements/route.ts               # GET active in-app banners
+    │       ├── impersonate/route.ts                 # GET status / DELETE stop (admin "view as user")
+    │       └── admin/                               # All role-guarded: users, users/[id] (+tokens/refund/export/impersonate), plans, analytics(+pdf), alerts, webhooks, admins, system/{ai,sources,limits,budget}
     ├── components/
-    │   ├── app-header.tsx, theme-toggle.tsx, theme-provider.tsx   # header shows the token-balance pill
+    │   ├── app-chrome.tsx          # Persistent header + page transition + impersonation/announcement banners (non-admin/auth routes)
+    │   ├── app-header.tsx, theme-toggle.tsx, theme-provider.tsx   # header: token pill (links to /plans), Admin link for admins
+    │   ├── announcement-banner.tsx, impersonation-banner.tsx
     │   ├── auth/                   # auth-shell.tsx (login/register layout), google-button.tsx
-    │   ├── account-form.tsx        # Account page form (name, password, balance)
+    │   ├── account-form.tsx        # Account form (name, password, balance, Buy tokens, GDPR export/delete)
+    │   ├── pricing-table.tsx       # /plans cards → Stripe checkout
     │   ├── job-board.tsx, job-card.tsx, match-badge.tsx (exports ScoreMeter)
     │   ├── filter-bar.tsx, refresh-button.tsx, empty-state.tsx
     │   ├── cv-upload.tsx           # Drag-and-drop + inline profile editor
-    │   ├── credential-editor.tsx   # Per-source API key editor used in Settings
-    │   ├── settings-form.tsx       # Job titles list + collapsible API credentials + Sources
+    │   ├── settings-form.tsx       # Job titles list only (API credentials + Sources moved to admin)
+    │   ├── admin/                  # Sidebar + manager/viewer components for every admin page
     │   └── ui/                     # shadcn primitives wrapping @base-ui/react
     └── lib/
         ├── prisma.ts             # Global Prisma client (dev-mode warning logs)
-        ├── anthropic.ts          # Lazy client + MODELS constant + hasAnthropicKey()
+        ├── ai/                   # Provider abstraction: types, claude, gemini, index (runWithAi, fallback chain, config)
+        ├── platform.ts           # SERVER-ONLY: global secrets (PlatformCredential, DB→env) + config (AppSetting)
+        ├── stripe.ts             # SERVER-ONLY: lazy Stripe client; rejects non-sk_test_ keys
+        ├── plans.ts / plans-repo.ts  # CLIENT-SAFE plan type+formatters / SERVER-ONLY DB-backed plan CRUD
+        ├── admin.ts              # SERVER-ONLY: role guards (requireAdminPage, getAdminUser…), logAdminAction
+        ├── limits.ts             # SERVER-ONLY: balance gates + rate limits (checkCvUpload, checkResearch)
+        ├── budget.ts, gdpr.ts, impersonation.ts, health.ts, analytics.ts, request-log.ts
         ├── claim.ts              # claimOrphanDataForFirstUser — legacy userId=null rows → first account
-        ├── tokens.ts             # SERVER-ONLY: TOKEN prices, getTokenAccount (lazy grant), charge, grant
+        ├── tokens.ts             # SERVER-ONLY: TOKEN prices, getTokenAccount, charge, grant, adminAdjustTokens, creditCheckoutSession, reverseCheckoutTokens
         ├── use-token-balance.ts  # Client hook + notifyTokensUpdated() event + formatTokens()
-        ├── cv-parser.ts          # extractCvText (PDF/DOCX/TXT, C0-byte sanitized) + parseCvProfile (Claude tool-use; emits 3 suggestedJobTitles)
-        ├── matcher.ts            # scoreJobs — batched Haiku tool-use; role-agnostic prompt + ScoringPreferences from Settings
-        ├── repo.ts               # getSessionUserId, getSettings (upsert by userId), getProfile (by userId)
+        ├── cv-parser.ts          # extractCvText (PDF/DOCX/TXT, C0-byte sanitized) + parseCvProfile (via runWithAi; emits 3 suggestedJobTitles)
+        ├── matcher.ts            # scoreJobs — batched tool-use via runWithAi; role-agnostic prompt + ScoringPreferences from Settings
+        ├── repo.ts               # getSessionUserId/getSessionUser (honor impersonation), getSettings, getProfile
         ├── constants.ts          # SOURCE_META, LOCATION_OPTIONS, SENIORITY/JOBTYPE options, DATE_POSTED_OPTIONS, TAB_STATUSES
         ├── credential-schema.ts  # CLIENT-SAFE: per-source field defs + env-fallback names
-        ├── credentials.ts        # SERVER-ONLY: DB-first/env-fallback resolution, masked status, per-process cache
+        ├── credentials.ts        # SERVER-ONLY: GLOBAL source-key resolution (PlatformCredential→env) + global enable/disable
         ├── infer.ts              # inferSeniority / inferJobType regex heuristics
-        ├── types.ts              # DTOs sent over the wire (incl. SourceStatusDTO, CredentialStatusDTO)
+        ├── types.ts              # DTOs sent over the wire
         ├── use-source-status.ts  # Client hook fetching /api/sources (with refetch)
         ├── utils.ts              # cn() helper
         └── sources/
@@ -127,7 +146,7 @@ Job_Hunter/
 ### CV upload (one-time per CV)
 1. User drops a PDF/DOCX/TXT in `/settings`.
 2. `POST /api/cv` reads the file (≤ 8 MB), routes to `extractCvText` (`unpdf` for PDF, `mammoth` for DOCX, raw for TXT/MD). Output is sanitized of C0 control bytes (Postgres rejects null bytes in `text` columns).
-3. `parseCvProfile` calls **Sonnet 4.6** with a `save_cv_profile` tool. Tool result populates `summary / skills / tools / industries / keywords / seniority / yearsExperience` **plus exactly 3 `suggestedJobTitles`** ordered by best fit.
+3. `parseCvProfile` runs the **active AI provider** via `runWithAi` (default Claude Sonnet 4.6; Gemini Flash if active) to populate `summary / skills / tools / industries / keywords / seniority / yearsExperience` **plus exactly 3 `suggestedJobTitles`** ordered by best fit. (Gate: the user needs ≥ 25 tokens and must be under the CV/day rate limit, checked first — see Guardrails below.)
 4. `prisma.profile.upsert({ where: { userId } })` replaces that user's previous profile wholesale.
 5. `Settings.jobTitles` is overwritten with the 3 suggested titles.
 6. Every `status = NEW` job is hard-deleted so old matches from the previous profile don't pollute the board. `STARRED` and `APPLIED` rows are preserved.
@@ -138,8 +157,8 @@ Job_Hunter/
 
 ### Refresh (the main loop)
 `POST /api/jobs/refresh` (`src/app/api/jobs/refresh/route.ts`):
-1. Requires a CV profile; refuses with 400 otherwise.
-2. Reads `Settings` (job titles, default locations, default seniority / job types, enabled sources).
+1. Requires a CV profile; refuses with 400 otherwise. **Gate** (`checkResearch`): refuses with 402 if balance ≤ 0, or 429 if over the per-hour rate limit.
+2. Reads `Settings` (job titles, default locations, default seniority / job types). **Which sources run is now a global admin setting** (`getEnabledSourceIds`), not per-user.
 3. **`searchEnabledSources`** (`src/lib/sources/search.ts`) runs sources by tier:
    - **Primary** (`BA_JOBBOERSE`, `JSEARCH`, `FANTASTIC_JOBS`) in parallel.
    - **Backup** (`ADZUNA`) only if the primary tier returned fewer than **10** results total.
@@ -149,7 +168,7 @@ Job_Hunter/
 5. Filter against the DB by `dedupeHash` — anything already stored (any status, including `DELETED`) is dropped, so previously-hidden jobs stay hidden.
 6. Filter again with `isLikelySameJob` (`src/lib/sources/similarity.ts`) against starred/applied jobs — catches cross-source title variants like *"Senior Product Designer — parental leave cover"*.
 7. **Pre-score personalization filter:** when `Settings.defaultSeniority` / `Settings.defaultJobTypes` is narrowed (subset selected), drop jobs that contradict them. `UNKNOWN` always passes (defensive narrow rule — matches `/api/jobs`).
-8. **`scoreJobs`** (`src/lib/matcher.ts`) batches the fresh jobs (10 per call) and asks **Haiku 4.5** to populate a `save_scores` tool with `{ score 0-100, explanation, missingSkills[] }`. The profile is sent in `system` with `cache_control: { type: "ephemeral" }` so the same CV doesn't re-cost across batches. The system prompt is **role-agnostic** — `Settings.jobTitles[0]` and the parsed CV define the candidate's profession; user preferences (seniority, job types, locations) are surfaced as explicit "USER PREFERENCES (from Settings)" with instructions to penalize contradictions.
+8. **`scoreJobs`** (`src/lib/matcher.ts`) batches the fresh jobs (10 per call) and asks the **active AI provider** via `runWithAi` (default Claude Haiku 4.5) to return `{ score 0-100, explanation, missingSkills[] }` per job. On the Claude path the profile system block is sent with `cache_control: { type: "ephemeral" }` so the same CV doesn't re-cost across batches (Gemini uses `systemInstruction`). The system prompt is **role-agnostic** — `Settings.jobTitles[0]` and the parsed CV define the candidate's profession; user preferences (seniority, job types, locations) are surfaced as explicit "USER PREFERENCES (from Settings)" with instructions to penalize contradictions. Each provider attempt is logged to `RequestLog`.
 9. `prisma.job.createMany({ skipDuplicates: true })`.
 10. **Charge** once the run has succeeded (so a failed run isn't billed): `TOKEN.PER_JOB_DISPLAY` (0.5) per surfaced job (fresh + repeats) plus `TOKEN.PER_JOB_RATING` (1) per freshly-rated job. A repeats-only run still bills the re-display but never re-rates.
 
@@ -171,10 +190,27 @@ Order: starred/inbox sort by `matchScore DESC, fetchedAt DESC`; applied sorts by
 - `PATCH /api/jobs/[id]` accepts `star / unstar / apply / unapply / delete`. `apply` writes `appliedAt = now()`; `unapply` sets `status = NEW, appliedAt = null`; `delete` sets `status = DELETED` (the row stays so dedupe permanently excludes it).
 - `POST /api/jobs/bulk` accepts `{ action: "delete" | "unapply", ids }`. `unapply` is guarded by `where: { status: "APPLIED" }` so a mistargeted bulk call can't reset arbitrary rows.
 
-### Source credentials
-- `GET /api/sources` reports `{ id, label, tier, connected, configured, editable, credentialSource }` per source. `credentialSource` is `"db" | "env" | "none"`.
-- `GET / PUT / DELETE /api/sources/[id]/credentials` manages per-source secrets in the DB. Returns masked tails only — raw values never cross the wire.
-- Adapters call `getSourceCredentials(sourceId)` from `src/lib/credentials.ts`. Resolution order: DB row → env fallback (named in `SOURCE_CREDENTIAL_SCHEMA`) → undefined. A per-process cache invalidates on `setCredential` / `clearCredential`.
+### Source credentials (now global / admin-managed)
+- Source API keys are **global platform secrets**, not per-user. Adapters call `getSourceCredentials(sourceId)` from `src/lib/credentials.ts`, which resolves `PlatformCredential` (keyed by the field's env-var name) → `process.env` → undefined, via `src/lib/platform.ts` (per-process cache).
+- Managed in **Admin → System Settings → Job sources** (`/api/admin/system/sources` + `[id]`): set/clear keys, and a per-source **global enable/disable** (`AppSetting "sources_disabled"`, surfaced via `getEnabledSourceIds`).
+- `GET /api/sources` still reports `{ id, label, tier, connected, configured, editable, credentialSource }` (used by the board's filter bar). The per-user `/api/sources/[id]/credentials` route + client editor were removed; the per-user `SourceCredential` model is legacy/unused.
+
+### Payments (Stripe, test mode)
+- `/plans` lists DB-backed `Plan`s. `POST /api/checkout` creates a hosted Stripe Checkout Session (price/tokens from the server's `Plan`, never the client) with `metadata { userId, planId }`. On return, `POST /api/checkout/confirm` verifies the session and credits; `POST /api/stripe/webhook` is the authoritative path. Both call `creditCheckoutSession` (idempotent via the unique `TokenLedger.stripeSessionId`).
+- **Refunds** (`/api/admin/users/[id]/refund`): retrieves the session's `payment_intent`, `stripe.refunds.create` (idempotency key), then `reverseCheckoutTokens` (deducts; overspend → debt).
+- `src/lib/stripe.ts` throws on any non-`sk_test_` key. Verified webhook events are recorded to `WebhookEvent` (Admin → Stripe Events).
+
+### AI providers (`src/lib/ai/*`)
+- `runWithAi(fn, op?)` tries the **active** provider then the **fallback chain** (enabled + configured only), logging each attempt to `RequestLog`. Providers (`claude`, `gemini`) implement `parseCvProfile`, `scoreBatch`, `ping` + `isConfigured`.
+- Config (active / fallback / enabled) lives in `AppSetting "ai_providers"`; keys (`ANTHROPIC_API_KEY`, `GEMINI_API_KEY`) in `PlatformCredential`→env. Managed in **Admin → System Settings → AI providers** (`/api/admin/system/ai` + `/key`). No redeploy to switch.
+
+### Admin backoffice & roles
+- `UserRole` (`USER`/`ADMIN`/`SUPER_ADMIN`) + `disabledAt` on `User`. Super Admin bootstrapped via `SUPER_ADMIN_EMAILS` (promoted in the `jwt` callback on sign-in). Role is **DB-authoritative**: guards in `src/lib/admin.ts` (`requireAdminPage`, `getAdminUser`, `getSuperAdminUser`) read the DB; the session carries role only for client UI. Every privileged action calls `logAdminAction` → `AdminAuditLog`.
+- `/admin` (sidebar layout, gated): Dashboard (analytics + CSV/PDF), User Management, Plans & Pricing, System Settings, API Health, Announcements, Stripe Events, Role Management (Super-Admin-only). **Impersonation**: an admin can "view as user" via a signed cookie (`src/lib/impersonation.ts`); `getSessionUserId`/`getSessionUser` resolve to the target only when the genuine JWT belongs to the matching admin.
+
+### Guardrails (`src/lib/limits.ts`)
+- **Balance gates** (a deliberate change from "never block"): CV upload needs ≥ `TOKEN.CV_PARSE` (25); Research needs balance > 0 — else **402**. **Rate limits** (admin-set in `AppSetting "rate_limits"`, counted from `TokenLedger`): research/hour + CV/day — else **429**. **Budget alerts** (`src/lib/budget.ts`): daily thresholds surfaced on the dashboard.
+- **GDPR** (`src/lib/gdpr.ts`): per-user JSON export (secrets stripped) + hard erasure (`prisma.user.delete` cascades), admin-side and self-serve in `/account`.
 
 ---
 
@@ -182,14 +218,18 @@ Order: starred/inbox sort by `matchScore DESC, fetchedAt DESC`; applied sorts by
 
 `prisma/schema.prisma`:
 
-- **`User`** — Auth.js account: `email @unique`, `name?`, `image?`, `emailVerified?`, and `password?` (a bcrypt hash for email/password users; `null` for OAuth-only Google users). **Token billing fields:** `tokenBalance Float @default(0)`, `tokenDebt Float @default(0)`, `tokensGrantedAt DateTime?` (null until the one-time signup grant lands). Owns `Profile?`, `Settings?`, `Job[]`, `SourceCredential[]`, `TokenLedger[]` (all `onDelete: Cascade`).
+- **`User`** — Auth.js account: `email @unique`, `name?`, `image?`, `emailVerified?`, `password?` (bcrypt hash for email/password users; `null` for OAuth-only). **Role/state:** `role UserRole @default(USER)`, `disabledAt DateTime?` (deactivation). **Token billing:** `tokenBalance Float`, `tokenDebt Float`, `tokensGrantedAt DateTime?`. Owns `Profile?`, `Settings?`, `Job[]`, `SourceCredential[]`, `TokenLedger[]` (all `onDelete: Cascade`).
 - **`Account` / `Session` / `VerificationToken`** — standard Auth.js adapter tables. `Session` is unused under the JWT session strategy but kept to satisfy the `@auth/prisma-adapter` contract.
-- **`TokenLedger`** — append-only audit trail of grants/charges. One row per action (not per job): `delta` (negative = charge, positive = grant), `balanceAfter`, `reason` (`"signup_grant" | "cv_parse" | "research"`), `metadata: Json?` (e.g. `{ considered, rated, repeats }` for a research run), `createdAt`. Indexed by `[userId, createdAt]`.
+- **`TokenLedger`** — append-only audit trail. One row per action: `delta` (− charge / + grant), `balanceAfter`, `reason` (`signup_grant | cv_parse | research | purchase | admin_grant | admin_deduct | refund`), `metadata: Json?`, **`stripeSessionId String? @unique`** (idempotency key for purchase crediting + `refund:<id>` for reversals), `createdAt`. Indexed by `[userId, createdAt]`.
+- **`AdminAuditLog`** — append-only record of privileged actions; self-contained (`actorId`/`actorEmail`/`targetId?`/`targetEmail?`/`action`/`metadata?`), no FK so it survives user deletion.
+- **`AppSetting`** (`key @id`, `value Json`) — global config (AI provider config, `sources_disabled`, `rate_limits`, `budget_alerts`). **`PlatformCredential`** (`name @id`, `value`) — global secrets (AI + source API keys), keyed by env-var name, never returned raw.
+- **`Plan`** (`id` slug `@id`, name/tagline/`priceEur`/`tokens`/`durationMonths`/`recommended`/`sortOrder`/`active`) — admin-editable token plans; seeded Starter/Plus/Pro.
+- **`RequestLog`** — one row per AI provider attempt (`provider`/`operation`/`ok`/`durationMs`/`error?`); powers analytics + API health. **`Announcement`** — admin banners (`message`/`level`/`active`/window). **`WebhookEvent`** (`id` = Stripe event id) — verified webhook events for the inspector.
 - **`Profile`** — one per user (`userId String? @unique`) — `fileName`, full `rawCvText`, structured fields, `parsedAt`, `updatedAt`.
 - **`Settings`** — one per user (`userId String? @unique`) — `jobTitles[]`, `defaultLocations[]`, `defaultSeniority[]`, `defaultJobTypes[]`, `defaultSources[]`.
-- **`SourceCredential`** — one row per `(userId, sourceId)` (`@@unique`; PK is a `cuid` `id`). `secrets: Json` holds the per-source field map (e.g. `{ apiKey: "…" }` or `{ appId, appKey }`). UI never reads `secrets` directly — only a masked tail is exposed.
+- **`SourceCredential`** — **legacy/unused**. Source keys are now global (`PlatformCredential`); this per-user table is kept only for historical rows.
 - **`Job`** — `userId`, `source` (enum), `externalId`, `dedupeHash`, title/company/location/url/description, `publisher` (for aggregators), `jobType`/`seniority` enums, `publishedAt`, `matchScore`/`matchExplanation`/`missingSkills[]`/`scoredAt`, `status` (`NEW`/`STARRED`/`APPLIED`/`DELETED`), `appliedAt`. Dedupe uniqueness is **per user** (`@@unique([userId, dedupeHash])`). Indexed by `[userId, status]`, `status`, and `source`.
-- **Enums** — `JobSourceId` (`BA_JOBBOERSE`, `JSEARCH`, `ADZUNA`, `JOBSPY`, `FANTASTIC_JOBS`, plus 6 legacy values kept for historical rows: `INDEED`, `LINKEDIN`, `STEPSTONE`, `XING`, `GLASSDOOR`, `MONSTER`); `JobStatus`; `Seniority`; `JobType`.
+- **Enums** — `UserRole` (`USER`/`ADMIN`/`SUPER_ADMIN`); `JobSourceId` (`BA_JOBBOERSE`, `JSEARCH`, `ADZUNA`, `JOBSPY`, `FANTASTIC_JOBS`, plus 6 legacy values kept for historical rows: `INDEED`, `LINKEDIN`, `STEPSTONE`, `XING`, `GLASSDOOR`, `MONSTER`); `JobStatus`; `Seniority`; `JobType`.
 
 > `userId` is nullable on the four data models only so pre-multi-tenancy rows survive migration as orphans until the first account claims them (`src/lib/claim.ts`). New rows always get the authenticated `userId`, and every query scopes by it.
 
@@ -268,8 +308,12 @@ npm run dev   # http://localhost:3000
 
 | Variable | Required by | Purpose |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | `getAnthropic()` | CV parsing + job scoring. App refuses to parse a CV without it. |
-| `AUTH_SECRET` | Auth.js (NextAuth) | ✅ Required. Signs the session JWT. Generate with `npx auth secret` (or `openssl rand -base64 33`). |
+| `ANTHROPIC_API_KEY` | Claude provider (`src/lib/ai/claude.ts`) | CV parsing + scoring on the Claude path. Fallback for the admin-stored key. |
+| `AUTH_SECRET` | Auth.js (NextAuth) | ✅ Required. Signs the session JWT + the impersonation cookie. Generate with `npx auth secret` (or `openssl rand -base64 33`). |
+| `SUPER_ADMIN_EMAILS` | `src/auth.ts` | Optional, comma-separated. Emails promoted to `SUPER_ADMIN` on sign-in — bootstraps admin access. |
+| `GEMINI_API_KEY` | Gemini provider (`src/lib/ai/gemini.ts`) | Optional. Enables the Gemini Flash provider (switch/fallback in admin). Fallback for the admin-stored key. |
+| `STRIPE_SECRET_KEY` | `src/lib/stripe.ts` | Optional, **`sk_test_…` only**. Enables token purchases; a live key is rejected. |
+| `STRIPE_WEBHOOK_SECRET` | `/api/stripe/webhook` | Optional, `whsec_…` from `stripe listen`. The success redirect also credits without it. |
 | `AUTH_GOOGLE_ID` + `AUTH_GOOGLE_SECRET` | Google provider | Google OAuth client (Cloud Console → Credentials → OAuth client ID, "Web application"). Redirect URI: `http://localhost:3000/api/auth/callback/google`. Optional — email/password registration works without it. |
 | `JSEARCH_API_KEY` | `jsearch` adapter | RapidAPI key for JSearch |
 | `FANTASTIC_JOBS_API_KEY` | `fantastic-jobs` adapter | RapidAPI key for Active Jobs DB. Can reuse the JSearch key (same RapidAPI account). |
@@ -278,9 +322,9 @@ npm run dev   # http://localhost:3000
 
 Sources without their key set surface in the UI as disabled with the hint *"Key needed"* — the toggle is greyed and `configured: false` comes back from `GET /api/sources`.
 
-**DB-backed credentials override env vars.** Once a user saves an API key via **Settings → API credentials**, it lives in the `SourceCredential` table and takes precedence over the matching env var (resolution: `getCredential(sourceId, fieldId)` in `src/lib/credentials.ts` checks DB first, then `process.env[field.envFallback]`). The env entries above are fallbacks — once a DB row exists for a source, you can leave the env entry blank. Clear the DB entry via the editor (or `DELETE /api/sources/[id]/credentials`) to fall back to env again.
+**Admin-stored keys override env vars.** AI keys and source keys are **global**: a value saved in **Admin → System Settings** lives in `PlatformCredential` (keyed by the env-var name) and takes precedence over `process.env`. Resolution is `getPlatformCredential(name)` in `src/lib/platform.ts` → DB → env. The env entries above are fallbacks for first-run / CI; clear the DB entry to fall back to env again. (There is no longer a per-user credential editor in client Settings.)
 
-The mapping of source → editable fields → env-fallback name lives in `SOURCE_CREDENTIAL_SCHEMA` (`src/lib/credential-schema.ts`). Currently editable: `JSEARCH` (1 field), `FANTASTIC_JOBS` (1 field), `ADZUNA` (2 fields). `BA_JOBBOERSE` and `JOBSPY` have no editable credentials.
+The mapping of source → editable fields → env-fallback name lives in `SOURCE_CREDENTIAL_SCHEMA` (`src/lib/credential-schema.ts`). Editable in admin: `JSEARCH` (1 field), `FANTASTIC_JOBS` (1 field), `ADZUNA` (2 fields). `BA_JOBBOERSE` and `JOBSPY` have no editable credentials.
 
 **Security**: `.env` and `.env.local` are both gitignored. Never paste secrets in chat or in tracked files. `secrets` columns are never returned over the wire — only a `••••<last4>` masked tail.
 
@@ -299,8 +343,10 @@ Strictly observed in the existing code:
 - **Zod** is used at every external boundary that takes JSON (`PATCH /jobs/[id]`, `PUT /settings`, `POST /jobs/bulk`). The Settings PUT derives its source-id enum from `ALL_SOURCE_IDS` so adding a source doesn't require updating the schema.
 - **Errors**: route handlers always return `{ error: string }` with a 4xx/5xx code on failure; the client surfaces these via `sonner.toast.error`.
 - **Tenant scoping**: every data access is scoped to the authenticated user. API routes call `getSessionUserId()` from `src/lib/repo.ts` first and return a JSON 401 when it's null; page routes are gated by `src/proxy.ts`. `getSettings(userId)` upserts the row on first access; `getProfile(userId)` reads it. There is no `"singleton"` id any more — `Profile` / `Settings` are keyed by `userId @unique`.
-- **Billing**: any route that drives an AI call (`/api/cv` POST, `/api/jobs/refresh`) must `charge()` the user via `src/lib/tokens.ts` after the work succeeds, and the client should call `notifyTokensUpdated()` so the header pill refetches. Don't gate the run on balance — `charge` floors at 0 and records overspend as debt.
-- **Source adapters** all implement `JobSource` from `src/lib/sources/types.ts`: `id / label / tier / connected / configured() / search(params)`. Adding a source requires (a) adding the enum value to `prisma/schema.prisma` and running a migration, (b) the new adapter file, (c) entries in `ALL_SOURCES` (`src/lib/sources/index.ts`) and `SOURCE_META` (`src/lib/constants.ts`), (d) an env var stub in `.env.example`. The orchestrator picks it up automatically based on `tier`.
+- **AI calls** go through `runWithAi(fn, op?)` (`src/lib/ai`) — never call a provider SDK directly from a route. `cv-parser.ts` / `matcher.ts` are the only call sites.
+- **Billing & gates**: any route driving an AI call (`/api/cv` POST, `/api/jobs/refresh`) must (1) gate first via `checkCvUpload` / `checkResearch` (`src/lib/limits.ts`) — these enforce the balance minimums + rate limits, returning 402/429; (2) `charge()` via `src/lib/tokens.ts` *after* the work succeeds; (3) the client calls `notifyTokensUpdated()` so the pill refetches. `charge` still floors at 0 and records overspend as debt — the gate, not `charge`, is what blocks.
+- **Admin routes** call `getAdminUser()` / `getSuperAdminUser()` (`src/lib/admin.ts`) first (JSON 403 when null) and `logAdminAction()` for any mutation.
+- **Source adapters** all implement `JobSource` from `src/lib/sources/types.ts`: `id / label / tier / connected / configured() / healthCheck() / search(params)` (`configured()` and `healthCheck()` take no args). Adding a source requires (a) adding the enum value to `prisma/schema.prisma` + a migration, (b) the new adapter file, (c) entries in `ALL_SOURCES` (`src/lib/sources/index.ts`) and `SOURCE_META` (`src/lib/constants.ts`), (d) field defs in `SOURCE_CREDENTIAL_SCHEMA` if it needs a key. The orchestrator picks it up automatically based on `tier`.
 
 **Design system** (`src/app/globals.css`): warm cream paper background, deep ink foreground, chartreuse as the single accent. CSS custom properties drive both light and dark modes. Utilities: `.font-display` (Fraunces 550, opsz 96), `.display-italic`, `.eyebrow` (uppercase tracked), `.dot-sep` (middot separator), `.rule`, `.lift-on-hover`. The favicon (`src/app/icon.svg`) reuses the same palette — ink square (`#1A1233`), paper "M" (`#F5F1E8`), chartreuse dot (`#DCCE40`) — so the browser-tab mark matches the in-app header logo.
 
@@ -316,7 +362,8 @@ Strictly observed in the existing code:
 - **JobSpy needs Python 3.10+**. macOS system Python is often 3.9 — use Homebrew Python (`/opt/homebrew/bin/python3.12`).
 - **Hydration warning at boot** is harmless and comes from browser extensions (`cz-shortcut-listen`).
 - **Memory-resident state**: `src/lib/prisma.ts` keeps a single Prisma client across dev-mode hot reloads via `globalThis`. Don't `new PrismaClient()` anywhere else.
-- **Tokens are internal, not money.** There's no payment provider, top-up flow, or hard quota — the 150-token signup grant is all a user gets, and overspend just accrues `tokenDebt`. The economy exists to make AI cost visible, not to block usage. A real paywall would be a deliberate addition.
+- **Tokens are now purchasable (Stripe, test mode).** Beyond the 150-token signup grant, users top up on `/plans` via Stripe Checkout. Two **balance gates** exist (CV needs ≥ 25; Research needs > 0) plus admin rate limits — so AI usage *can* be blocked now (a change from the original "never block" design). `charge` itself still floors at 0 and accrues `tokenDebt`; the gates are what refuse. Stripe is **sandbox-only** (`sk_test_`); there's no production/live billing wired.
+- **Admin access** is DB-authoritative via `UserRole`. Bootstrap the first Super Admin with `SUPER_ADMIN_EMAILS` in `.env.local`, then manage roles in **Admin → Role Management**. No env var = no admin access (everyone is `USER`).
 - **Legacy single-tenant data** (`userId = null`) is claimed by the **first** account to register or sign in (`src/lib/claim.ts`, guarded by `userCount === 1`). On a fresh database with no orphan rows this is a no-op.
 
 ---

@@ -2,6 +2,7 @@
 
 import {
   Briefcase,
+  Coins,
   FileText,
   Inbox,
   ListFilter,
@@ -35,8 +36,13 @@ import {
   ALL_SOURCE_IDS,
   SOURCE_META,
 } from "@/lib/constants";
+import { LOW_TOKEN_THRESHOLD } from "@/lib/plans";
 import type { JobDTO, RefreshResult, SettingsDTO } from "@/lib/types";
-import { formatTokens, notifyTokensUpdated } from "@/lib/use-token-balance";
+import {
+  formatTokens,
+  notifyTokensUpdated,
+  useTokenBalance,
+} from "@/lib/use-token-balance";
 import { cn } from "@/lib/utils";
 
 const SOURCE_LABEL = new Map(SOURCE_META.map((s) => [s.id, s.label]));
@@ -69,6 +75,7 @@ export function JobBoard() {
   const [heroTitle, setHeroTitle] = useState<string>("Product Design");
   const [unapplyOpen, setUnapplyOpen] = useState(false);
   const [unapplying, setUnapplying] = useState(false);
+  const { balance } = useTokenBalance();
 
   const fetchJobs = useCallback(async () => {
     setLoading(true);
@@ -321,6 +328,22 @@ export function JobBoard() {
             render={<Link href="/settings" />}
           >
             Upload CV
+          </Button>
+        </Alert>
+      )}
+
+      {balance != null && balance < LOW_TOKEN_THRESHOLD && (
+        <Alert className="border-accent/50 bg-accent/[0.07] flex flex-wrap items-center justify-between gap-3 rounded-2xl">
+          <Coins className="size-4" />
+          <div className="flex-1">
+            <AlertTitle>Running low on tokens</AlertTitle>
+            <AlertDescription>
+              {formatTokens(balance)} left — top up to keep researching and
+              rating jobs.
+            </AlertDescription>
+          </div>
+          <Button size="sm" nativeButton={false} render={<Link href="/plans" />}>
+            Buy tokens
           </Button>
         </Alert>
       )}

@@ -233,6 +233,8 @@ The same logic applies to `jobType`. For `source`, no UNKNOWN passes because eve
 
 ## 22. DB-backed source credentials with env fallback
 
+> **Superseded (2026-05-25).** Source keys are now **global**, not per-user, and managed in the admin backoffice rather than client Settings. They live in `PlatformCredential` (keyed by the env-var name), resolved DB → env via `src/lib/platform.ts` (`getSourceCredentials(sourceId)` in `src/lib/credentials.ts` no longer takes a `userId`). The client `CredentialEditor` and `/api/sources/[id]/credentials` were removed; the per-user `SourceCredential` table is legacy. The env-fallback rationale below still holds; the per-user / per-process-cache details do not.
+
 **Decision.** A `SourceCredential` Prisma row (one per `JobSourceId`, `secrets: JSONB`) stores per-source API keys edited via Settings → API credentials. `getSourceCredentials(sourceId)` in `src/lib/credentials.ts` resolves DB-first, then `process.env[field.envFallback]` named in `SOURCE_CREDENTIAL_SCHEMA`. The UI never sees the raw value — only a `••••<last4>` mask.
 
 **Why.** Editing `.env.local` and restarting the dev server every time a key needs to change is fragile and slow. DB-backed credentials let the user paste a key in the UI and have it take effect on the next refresh, no restart. Keeping env as the fallback means the existing onboarding (`.env.example` → `.env.local`) still works for first-run and CI.
@@ -362,6 +364,8 @@ The same logic applies to `jobType`. For `source`, no UNKNOWN passes because eve
 ---
 
 ## 35. Token economy: meter cost, never block (debt instead of a hard cap)
+
+> **Partially superseded (2026-05-25).** Tokens are now **purchasable via Stripe** (sandbox/test) on `/plans`, and two **balance gates** were added (`src/lib/limits.ts`): CV parse refuses below 25 tokens, Research refuses at 0 (402), plus admin rate limits (429). So usage *can* now be blocked — a deliberate reversal of "never block" for those two actions. `charge()` itself is unchanged (floors at 0, accrues `tokenDebt`); the gates run *before* it. Stripe is sandbox-only — no live billing.
 
 **Decision.** `src/lib/tokens.ts` charges for AI actions (CV parse 25; research 0.5/job displayed + 1/job rated) against a 150-token signup grant. `charge()` floors the balance at 0 and records any overspend as `tokenDebt` — the run **always proceeds**. Balances are `Float` because charges move in 0.5 increments. Charging happens *after* the work succeeds, and every charge writes one `TokenLedger` row.
 

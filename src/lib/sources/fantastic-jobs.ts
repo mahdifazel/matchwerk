@@ -174,13 +174,26 @@ export const fantasticJobs: JobSource = {
   label: "Fantastic.jobs",
   tier: "primary",
   connected: true,
-  configured: async (userId) => {
-    const c = await getSourceCredentials(userId, "FANTASTIC_JOBS");
+  configured: async () => {
+    const c = await getSourceCredentials("FANTASTIC_JOBS");
     return Boolean(c.apiKey);
   },
 
+  async healthCheck() {
+    const { apiKey } = await getSourceCredentials("FANTASTIC_JOBS");
+    if (!apiKey) throw new Error("No API key.");
+    const url = new URL(ENDPOINT);
+    url.searchParams.set("advanced_title_filter", "designer");
+    url.searchParams.set("limit", "1");
+    const res = await fetch(url, {
+      headers: { accept: "application/json", "X-RapidAPI-Key": apiKey, "X-RapidAPI-Host": HOST },
+      cache: "no-store",
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  },
+
   async search(params: SearchParams): Promise<RawJob[]> {
-    const { apiKey } = await getSourceCredentials(params.userId, "FANTASTIC_JOBS");
+    const { apiKey } = await getSourceCredentials("FANTASTIC_JOBS");
     if (!apiKey) return [];
 
     const titles = params.jobTitles.slice(0, MAX_TITLES);

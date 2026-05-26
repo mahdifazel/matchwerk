@@ -150,6 +150,12 @@ export const jobspy: JobSource = {
   connected: true,
   configured: async () => existsSync(VENV_PYTHON) && existsSync(BRIDGE_SCRIPT),
 
+  async healthCheck() {
+    if (!existsSync(VENV_PYTHON) || !existsSync(BRIDGE_SCRIPT)) {
+      throw new Error("Python venv or bridge script missing.");
+    }
+  },
+
   async search(params: SearchParams): Promise<RawJob[]> {
     if (!existsSync(VENV_PYTHON) || !existsSync(BRIDGE_SCRIPT)) {
       console.warn(
