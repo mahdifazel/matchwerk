@@ -4,7 +4,6 @@ import {
   ALL_LOCATION_IDS,
   ALL_SENIORITY,
   ALL_SOURCE_IDS,
-  DEFAULT_JOB_TITLES,
 } from "@/lib/constants";
 import { readImpersonation } from "@/lib/impersonation";
 import { prisma } from "@/lib/prisma";
@@ -79,7 +78,9 @@ export async function getSettings(userId: string) {
     update: {},
     create: {
       userId,
-      jobTitles: DEFAULT_JOB_TITLES,
+      // No default job title — a new user has none until they upload a CV
+      // (which fills these) or add one manually in Settings.
+      jobTitles: [],
       defaultLocations: ALL_LOCATION_IDS,
       defaultSeniority: ALL_SENIORITY,
       defaultJobTypes: ALL_JOB_TYPES,

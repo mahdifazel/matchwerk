@@ -73,7 +73,7 @@ export function JobBoard() {
   const [pending, setPending] = useState<Set<string>>(new Set());
   const [hasProfile, setHasProfile] = useState<boolean | null>(null);
   const [showFilters, setShowFilters] = useState(false);
-  const [heroTitle, setHeroTitle] = useState<string>("Product Design");
+  const [heroTitle, setHeroTitle] = useState<string | null>(null);
   const [unapplyOpen, setUnapplyOpen] = useState(false);
   const [unapplying, setUnapplying] = useState(false);
   const { balance } = useTokenBalance();
@@ -128,10 +128,12 @@ export function JobBoard() {
         .then((r) => r.json())
         .then((d: { settings: SettingsDTO | null }) => {
           const first = d.settings?.jobTitles?.[0]?.trim();
-          if (first) setHeroTitle(first);
+          // Null when the user has no job title yet → the hero shows a generic
+          // headline instead of a specific profession.
+          setHeroTitle(first || null);
         })
         .catch(() => {
-          // Keep the default hero title; failure is non-blocking.
+          // Leave the generic headline; failure is non-blocking.
         });
     }
     loadHeroTitle();
@@ -295,13 +297,14 @@ export function JobBoard() {
       <section className="pt-6 sm:pt-10">
         <p className="eyebrow mb-5">AI-matched · Germany · 2026</p>
         <h1 className="font-display text-[2.25rem] leading-[1.1] tracking-tight sm:text-[3rem]">
-          {heroTitle} jobs,
+          {heroTitle ? `${heroTitle} jobs,` : "Jobs,"}
           <br className="hidden sm:block" />
           <span className="text-foreground/85"> ranked for you.</span>
         </h1>
         <p className="text-muted-foreground mt-5 max-w-2xl text-[1rem] leading-relaxed">
-          One quiet feed. Continuously scanned across BA Jobbörse, JSearch and
-          Adzuna, each listing scored against your CV.
+          One quiet feed across the web&apos;s major job sites — LinkedIn,
+          Indeed, Glassdoor, BA Jobbörse and more — pulled through our connected
+          APIs and scored against your CV.
         </p>
 
         <div className="mt-8 flex flex-wrap items-center gap-x-8 gap-y-5">
