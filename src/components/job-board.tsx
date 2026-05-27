@@ -303,7 +303,7 @@ export function JobBoard() {
             {heroTitle ? " ranked for you." : " ranked by fit."}
           </span>
         </h1>
-        <p className="text-muted-foreground mt-5 max-w-2xl text-[1rem] leading-relaxed">
+        <p className="text-muted-foreground mt-5 max-w-3xl text-[1rem] leading-relaxed">
           Every job worth a look, from LinkedIn, Indeed, Glassdoor, BA Jobbörse
           and more, gathered into one quiet feed and scored against your CV, so
           the best matches rise to the top.
