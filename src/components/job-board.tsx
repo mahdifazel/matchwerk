@@ -297,9 +297,11 @@ export function JobBoard() {
       <section className="pt-6 sm:pt-10">
         <p className="eyebrow mb-5">AI-matched · Germany · 2026</p>
         <h1 className="font-display text-[2.25rem] leading-[1.1] tracking-tight sm:text-[3rem]">
-          {heroTitle ? `${heroTitle} jobs,` : "Jobs,"}
+          {heroTitle ? `${heroTitle} jobs,` : "Roles matched to you,"}
           <br className="hidden sm:block" />
-          <span className="text-foreground/85"> ranked for you.</span>
+          <span className="text-foreground/85">
+            {heroTitle ? " ranked for you." : " ranked by fit."}
+          </span>
         </h1>
         <p className="text-muted-foreground mt-5 max-w-2xl text-[1rem] leading-relaxed">
           One quiet feed across the web&apos;s major job sites — LinkedIn,
