@@ -118,14 +118,20 @@ export function StatusBadge({ tone, children }: { tone: Tone; children: ReactNod
   );
 }
 
-/** A small status dot (green ok / red error / grey idle). */
-export function StatusDot({ tone }: { tone: "ok" | "error" | "idle" }) {
+/** A small status dot (green ok / amber warn / red error / grey idle). */
+export function StatusDot({ tone }: { tone: "ok" | "warn" | "error" | "idle" }) {
   return (
     <span
       aria-hidden
       className={cn(
         "size-2.5 shrink-0 rounded-full",
-        tone === "ok" ? "bg-emerald-500" : tone === "error" ? "bg-destructive" : "bg-muted-foreground/40",
+        tone === "ok"
+          ? "bg-emerald-500"
+          : tone === "warn"
+            ? "bg-amber-500"
+            : tone === "error"
+              ? "bg-destructive"
+              : "bg-muted-foreground/40",
       )}
     />
   );

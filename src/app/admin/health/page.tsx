@@ -14,6 +14,7 @@ type Result = {
   kind: "ai" | "source";
   configured: boolean;
   ok: boolean;
+  rateLimited: boolean;
   latencyMs: number | null;
   error: string | null;
 };
@@ -81,11 +82,22 @@ function Group({ title, results }: { title: string; results: Result[] }) {
         {results.map((r) => (
           <div key={r.id} className="flex items-center justify-between gap-3 px-4 py-3">
             <div className="flex min-w-0 items-center gap-3">
-              <StatusDot tone={!r.configured ? "idle" : r.ok ? "ok" : "error"} />
+              <StatusDot
+                tone={
+                  !r.configured ? "idle" : r.ok ? "ok" : r.rateLimited ? "warn" : "error"
+                }
+              />
               <div className="min-w-0">
                 <div className="font-medium">{r.label}</div>
                 {r.error && (
-                  <div className="text-destructive truncate text-xs">{r.error}</div>
+                  <div
+                    className={cn(
+                      "truncate text-xs",
+                      r.rateLimited ? "text-amber-700 dark:text-amber-400" : "text-destructive",
+                    )}
+                  >
+                    {r.error}
+                  </div>
                 )}
               </div>
             </div>
@@ -97,6 +109,8 @@ function Group({ title, results }: { title: string; results: Result[] }) {
                 <StatusBadge tone="muted">Not configured</StatusBadge>
               ) : r.ok ? (
                 <StatusBadge tone="ok">Operational</StatusBadge>
+              ) : r.rateLimited ? (
+                <StatusBadge tone="warn">Rate-limited</StatusBadge>
               ) : (
                 <StatusBadge tone="error">Down</StatusBadge>
               )}
