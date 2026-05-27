@@ -8,7 +8,7 @@ A guide for engineers (and Claude) working on this codebase. Read top-to-bottom 
 
 **Matchwerk** is a multi-tenant web app that pulls real Product Design (and other) job listings from German job boards, deduplicates them across sources, scores each listing against the signed-in user's CV via the **active AI provider (Claude or Gemini)**, and presents them in a board where the user can star, mark applied, or hide jobs.
 
-**Payments & admin.** Tokens (the in-app AI currency) are **purchasable via Stripe** (sandbox/test) on `/plans`. A role-gated **admin backoffice** at `/admin` manages users, tokens, plans/pricing, AI providers + source API keys, rate limits, budget alerts, announcements, analytics, API health, and Stripe events. Roles: `USER` / `ADMIN` / `SUPER_ADMIN` (see §4).
+**Payments & admin.** Tokens (the in-app AI currency) are **purchasable via Stripe** on `/plans` (test mode by default; live mode behind the `STRIPE_ALLOW_LIVE` opt-in — see §4 Payments). A role-gated **admin backoffice** at `/admin` manages users, tokens, plans/pricing, AI providers + source API keys, rate limits, budget alerts, announcements, analytics, API health, and Stripe events. Roles: `USER` / `ADMIN` / `SUPER_ADMIN` (see §4).
 
 **Auth & tenancy.** Users sign in with **Google** or with **email/password** (open registration). Auth is handled by **Auth.js v5 (NextAuth)** — see `src/auth.ts` / `src/auth.config.ts`. Every data model (`Profile`, `Settings`, `Job`, `SourceCredential`) carries a `userId` and is scoped to its owner; there is one `Profile` and one `Settings` row **per user** (`userId @unique`), not a global singleton. Page routes are gated by `src/proxy.ts` (Next 16 "Proxy", formerly Middleware); API routes self-guard with a JSON 401 via `getSessionUserId()` in `src/lib/repo.ts`.
 
@@ -32,7 +32,7 @@ The original audience is one person — the project owner, searching Product Des
 | ORM | Prisma 7.8 with `@prisma/adapter-pg` | Custom client output at `src/generated/prisma` (gitignored) |
 | Auth | Auth.js v5 (`next-auth@5.0.0-beta`) + `@auth/prisma-adapter`, `bcryptjs` for password hashing | Google OAuth + email/password credentials; JWT session strategy. See `src/auth.ts` / `src/auth.config.ts` |
 | Billing | In-app token economy (`src/lib/tokens.ts`) | Float balances + debt on `User`, append-only `TokenLedger`. **Balance gates** on CV/Research + admin-set **rate limits** (`src/lib/limits.ts`) |
-| Payments | Stripe (`stripe` SDK), **test mode only** | Hosted Checkout for token top-ups; `src/lib/stripe.ts` rejects non-`sk_test_` keys. DB-backed `Plan` table |
+| Payments | Stripe (`stripe` SDK) | Hosted Checkout for token top-ups. Test by default; live (`sk_live_…`) requires `STRIPE_ALLOW_LIVE=true` (`src/lib/stripe.ts`). DB-backed `Plan` table |
 | AI | Anthropic SDK + Google GenAI (`@google/genai`) | Provider abstraction in `src/lib/ai/*`: active provider (Claude Sonnet/Haiku or Gemini Flash) + fallback chain; switchable in admin |
 | Admin | Role-gated backoffice (`/admin`) | `UserRole` enum; DB-authoritative guards (`src/lib/admin.ts`); `AdminAuditLog`; reports via CSV + `pdf-lib` |
 | File parsing | `mammoth` (DOCX), `unpdf` (PDF) — plus inline TXT/MD |
@@ -108,7 +108,7 @@ Job_Hunter/
         ├── prisma.ts             # Global Prisma client (dev-mode warning logs)
         ├── ai/                   # Provider abstraction: types, claude, gemini, index (runWithAi, fallback chain, config)
         ├── platform.ts           # SERVER-ONLY: global secrets (PlatformCredential, DB→env) + config (AppSetting)
-        ├── stripe.ts             # SERVER-ONLY: lazy Stripe client; rejects non-sk_test_ keys
+        ├── stripe.ts             # SERVER-ONLY: lazy Stripe client; test keys always, live keys only with STRIPE_ALLOW_LIVE=true
         ├── plans.ts / plans-repo.ts  # CLIENT-SAFE plan type+formatters / SERVER-ONLY DB-backed plan CRUD
         ├── admin.ts              # SERVER-ONLY: role guards (requireAdminPage, getAdminUser…), logAdminAction
         ├── limits.ts             # SERVER-ONLY: balance gates + rate limits (checkCvUpload, checkResearch)
@@ -197,10 +197,10 @@ Order: starred/inbox sort by `matchScore DESC, fetchedAt DESC`; applied sorts by
 - Managed in **Admin → System Settings → Job sources** (`/api/admin/system/sources` + `[id]`): set/clear keys, and a per-source **global enable/disable** (`AppSetting "sources_disabled"`, surfaced via `getEnabledSourceIds`).
 - `GET /api/sources` still reports `{ id, label, tier, connected, configured, editable, credentialSource }` (used by the board's filter bar). The per-user `/api/sources/[id]/credentials` route + client editor were removed; the per-user `SourceCredential` model is legacy/unused.
 
-### Payments (Stripe, test mode)
+### Payments (Stripe — test by default, live behind an opt-in)
 - `/plans` lists DB-backed `Plan`s. `POST /api/checkout` creates a hosted Stripe Checkout Session (price/tokens from the server's `Plan`, never the client) with `metadata { userId, planId }`. On return, `POST /api/checkout/confirm` verifies the session and credits; `POST /api/stripe/webhook` is the authoritative path. Both call `creditCheckoutSession` (idempotent via the unique `TokenLedger.stripeSessionId`).
 - **Refunds** (`/api/admin/users/[id]/refund`): retrieves the session's `payment_intent`, `stripe.refunds.create` (idempotency key), then `reverseCheckoutTokens` (deducts; overspend → debt).
-- `src/lib/stripe.ts` throws on any non-`sk_test_` key. Verified webhook events are recorded to `WebhookEvent` (Admin → Stripe Events).
+- **Mode guard** (`src/lib/stripe.ts`): `sk_test_…` keys always work. A live key (`sk_live_…`) is accepted **only when `STRIPE_ALLOW_LIVE=true`** — otherwise `getStripe()` throws, so real charges can't happen by accident. `getStripeMode()` returns `"test" | "live" | "off"`. Verified webhook events are recorded to `WebhookEvent` (Admin → Stripe Events). Live mode also needs an activated Stripe account + a live webhook endpoint; VAT/tax/terms are out of scope of the code.
 
 ### AI providers (`src/lib/ai/*`)
 - `runWithAi(fn, op?)` tries the **active** provider then the **fallback chain** (enabled + configured only), logging each attempt to `RequestLog`. Providers (`claude`, `gemini`) implement `parseCvProfile`, `scoreBatch`, `ping` + `isConfigured`.
@@ -317,8 +317,9 @@ npm run dev   # http://localhost:3000
 | `AUTH_SECRET` | Auth.js (NextAuth) | ✅ Required. Signs the session JWT + the impersonation cookie. Generate with `npx auth secret` (or `openssl rand -base64 33`). |
 | `SUPER_ADMIN_EMAILS` | `src/auth.ts` | Optional, comma-separated. Emails promoted to `SUPER_ADMIN` on sign-in — bootstraps admin access. |
 | `GEMINI_API_KEY` | Gemini provider (`src/lib/ai/gemini.ts`) | Optional. Enables the Gemini Flash provider (switch/fallback in admin). Fallback for the admin-stored key. |
-| `STRIPE_SECRET_KEY` | `src/lib/stripe.ts` | Optional, **`sk_test_…` only**. Enables token purchases; a live key is rejected. |
-| `STRIPE_WEBHOOK_SECRET` | `/api/stripe/webhook` | Optional, `whsec_…` from `stripe listen`. The success redirect also credits without it. |
+| `STRIPE_SECRET_KEY` | `src/lib/stripe.ts` | Optional. `sk_test_…` works as-is; `sk_live_…` is accepted **only with `STRIPE_ALLOW_LIVE=true`**. Enables token purchases. |
+| `STRIPE_ALLOW_LIVE` | `src/lib/stripe.ts` | Optional. `"true"` opts into real charges with a live key — required for live mode, prevents accidental live use otherwise. |
+| `STRIPE_WEBHOOK_SECRET` | `/api/stripe/webhook` | Optional, `whsec_…` from `stripe listen` (test) or a live webhook endpoint. The success redirect also credits without it. |
 | `AUTH_GOOGLE_ID` + `AUTH_GOOGLE_SECRET` | Google provider | Google OAuth client (Cloud Console → Credentials → OAuth client ID, "Web application"). Redirect URI: `http://localhost:3000/api/auth/callback/google`. Optional — email/password registration works without it. |
 | `JSEARCH_API_KEY` | `jsearch` adapter | RapidAPI key for JSearch |
 | `FANTASTIC_JOBS_API_KEY` | `fantastic-jobs` adapter | RapidAPI key for Active Jobs DB. Can reuse the JSearch key (same RapidAPI account). |
@@ -367,7 +368,7 @@ Strictly observed in the existing code:
 - **JobSpy needs Python 3.10+**. macOS system Python is often 3.9 — use Homebrew Python (`/opt/homebrew/bin/python3.12`).
 - **Hydration warning at boot** is harmless and comes from browser extensions (`cz-shortcut-listen`).
 - **Memory-resident state**: `src/lib/prisma.ts` keeps a single Prisma client across dev-mode hot reloads via `globalThis`. Don't `new PrismaClient()` anywhere else.
-- **Tokens are now purchasable (Stripe, test mode).** Beyond the 150-token signup grant, users top up on `/plans` via Stripe Checkout. Two **balance gates** exist (CV needs ≥ 25; Research needs > 0) plus admin rate limits — so AI usage *can* be blocked now (a change from the original "never block" design). `charge` itself still floors at 0 and accrues `tokenDebt`; the gates are what refuse. Stripe is **sandbox-only** (`sk_test_`); there's no production/live billing wired.
+- **Tokens are now purchasable (Stripe, test mode).** Beyond the 150-token signup grant, users top up on `/plans` via Stripe Checkout. Two **balance gates** exist (CV needs ≥ 25; Research needs > 0) plus admin rate limits — so AI usage *can* be blocked now (a change from the original "never block" design). `charge` itself still floors at 0 and accrues `tokenDebt`; the gates are what refuse. Stripe defaults to test mode; **live billing is supported** but gated — a `sk_live_…` key only works with `STRIPE_ALLOW_LIVE=true`, and going live also needs an activated Stripe account + live webhook (see §4 Payments, §8).
 - **Admin access** is DB-authoritative via `UserRole`. Bootstrap the first Super Admin with `SUPER_ADMIN_EMAILS` in `.env.local`, then manage roles in **Admin → Role Management**. No env var = no admin access (everyone is `USER`).
 - **Legacy single-tenant data** (`userId = null`) is claimed by the **first** account to register or sign in (`src/lib/claim.ts`, guarded by `userCount === 1`). On a fresh database with no orphan rows this is a no-op.
 

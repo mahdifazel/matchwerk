@@ -343,7 +343,7 @@ npm run test:watch # interactive
 | File | Layer | Focus |
 |---|---|---|
 | `src/lib/__tests__/tokens.test.ts` | unit (real DB) | signup grant applied once; `creditCheckoutSession` credits once + **no-op on repeat session id** + amount from the DB plan + debt paydown + unknown-plan throws; `reverseCheckoutTokens` once + overspend→debt; `charge` overspend→debt + no-op; `grant` pays debt first; `adminAdjustTokens` grant/deduct + ledger reasons |
-| `src/lib/__tests__/stripe.test.ts` | unit | `getStripe()` **rejects `sk_live_…`** and a missing key, accepts `sk_test_…` (cached); `hasStripeKey()` truthiness |
+| `src/lib/__tests__/stripe.test.ts` | unit | `getStripe()` accepts `sk_test_…` (cached), **rejects `sk_live_…` unless `STRIPE_ALLOW_LIVE=true`**, rejects missing/malformed keys; `hasStripeKey()` / `getStripeMode()` reflect test/live/off |
 | `src/app/api/checkout/__tests__/route.test.ts` | route (Stripe + auth mocked) | 401 / 503 / 400 guards; price = `round(priceEur*100)`; `metadata {userId, planId}` from the **server** plan |
 | `src/app/api/checkout/confirm/__tests__/route.test.ts` | route | 401 / 404 / 403; pending when unpaid; credits once then **idempotent**; unknown plan → 400 |
 | `src/app/api/stripe/webhook/__tests__/route.test.ts` | route | bad/missing signature → 400; paid completion credits + records `processed`; **redelivered event ≠ double credit**; unpaid / missing metadata → `ignored`; credit failure → 500; other event types → `ignored` |
