@@ -15,6 +15,11 @@ import { searchEnabledSources } from "@/lib/sources";
 import { dedupeRawJobs } from "@/lib/sources/dedupe";
 import { isLikelySameJob } from "@/lib/sources/similarity";
 
+// Fans out to several job APIs + batched AI scoring — well past the default
+// serverless timeout. 60s is safe on all Vercel plans; raise toward 300 on Pro
+// if large refreshes still time out.
+export const maxDuration = 60;
+
 export async function POST() {
   try {
     return await runRefresh();

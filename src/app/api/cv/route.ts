@@ -6,6 +6,10 @@ import { prisma } from "@/lib/prisma";
 import { getProfile, getSessionUserId, getSettings } from "@/lib/repo";
 import { charge, TOKEN } from "@/lib/tokens";
 
+// CV upload parses the file and runs an AI extraction — can take tens of
+// seconds. 60s is safe on all Vercel plans (only the POST is heavy).
+export const maxDuration = 60;
+
 const stringList = z.array(z.string().trim().min(1)).max(200);
 
 const UNAUTHORIZED = NextResponse.json(
