@@ -56,7 +56,14 @@ export async function POST(request: Request) {
       typeof session.amount_total === "number"
         ? `${(session.amount_total / 100).toFixed(2)} ${(session.currency ?? "").toUpperCase()}`
         : "—";
-    const summary = `${planId ?? "?"} · ${amount} · ${session.customer_details?.email ?? "—"}`;
+    // Label the event with the app account that gets credited (keyed on
+    // metadata.userId), not the email typed on Stripe's checkout page — those
+    // can differ. Fall back to the Stripe email when there's no user match.
+    const accountEmail = userId
+      ? ((await prisma.user.findUnique({ where: { id: userId }, select: { email: true } }))?.email ??
+        null)
+      : null;
+    const summary = `${planId ?? "?"} · ${amount} · ${accountEmail ?? session.customer_details?.email ?? "—"}`;
 
     if (userId && planId && paid) {
       try {
