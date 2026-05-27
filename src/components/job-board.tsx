@@ -304,9 +304,9 @@ export function JobBoard() {
           </span>
         </h1>
         <p className="text-muted-foreground mt-5 max-w-2xl text-[1rem] leading-relaxed">
-          One quiet feed across the web&apos;s major job sites, LinkedIn,
-          Indeed, Glassdoor, BA Jobbörse and more, pulled through our connected
-          APIs and scored against your CV.
+          Every job worth a look, from LinkedIn, Indeed, Glassdoor, BA Jobbörse
+          and more, gathered into one quiet feed and scored against your CV, so
+          the best matches rise to the top.
         </p>
 
         <div className="mt-8 flex flex-wrap items-center gap-x-8 gap-y-5">
