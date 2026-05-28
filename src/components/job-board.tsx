@@ -76,6 +76,7 @@ export function JobBoard() {
   const [heroTitle, setHeroTitle] = useState<string | null>(null);
   const [unapplyOpen, setUnapplyOpen] = useState(false);
   const [unapplying, setUnapplying] = useState(false);
+  const [clearOpen, setClearOpen] = useState(false);
   // IDs the user has "Cleared" from the Inbox view. Soft-hide only — the rows
   // stay in the DB. We filter fetched jobs through this ref on every load so a
   // tab switch doesn't bring them back; a fresh Research click resets it so
@@ -233,22 +234,32 @@ export function JobBoard() {
 
   const handleClearList = useCallback(() => {
     if (jobs.length === 0) return;
-    // Applied: bulk-unapply needs confirmation (moves jobs back to Inbox).
+    // Applied: bulk-unapply needs its own confirmation (moves jobs back to Inbox).
     if (tab === "applied") {
       setUnapplyOpen(true);
       return;
     }
-    // Inbox + Starred: soft clear only. The rows stay in the DB; we just
-    // remember the visible IDs and filter them out of subsequent fetches in
-    // this session so a tab switch doesn't bring them back. A Research click
-    // resets the ref (see handleRefresh) so they reappear.
+    // Inbox + Starred: ask first; the soft-clear itself runs in handleConfirmClear.
+    setClearOpen(true);
+  }, [jobs, tab]);
+
+  const handleConfirmClear = useCallback(() => {
+    if (jobs.length === 0) {
+      setClearOpen(false);
+      return;
+    }
+    // Soft clear only. The rows stay in the DB; we just remember the visible
+    // IDs and filter them out of subsequent fetches in this session so a tab
+    // switch doesn't bring them back. handleRefresh resets the ref so a
+    // Research click surfaces them again.
     const cleared = jobs.length;
     for (const j of jobs) clearedIdsRef.current.add(j.id);
     setJobs([]);
+    setClearOpen(false);
     toast.success(
       `Cleared ${cleared} job${cleared === 1 ? "" : "s"} from view. They'll come back on the next Research.`,
     );
-  }, [jobs, tab]);
+  }, [jobs]);
 
   const handleBulkUnapply = useCallback(async () => {
     const ids = jobs.map((j) => j.id);
@@ -458,6 +469,31 @@ export function JobBoard() {
                 }}
               >
                 {unapplying ? "Moving…" : "Move to Inbox"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        <AlertDialog open={clearOpen} onOpenChange={setClearOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                Clear {jobs.length} job{jobs.length === 1 ? "" : "s"} from view?
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                These jobs stay in your database — they&apos;re just hidden from
+                this view and will come back on the next Research.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={(e) => {
+                  e.preventDefault();
+                  handleConfirmClear();
+                }}
+              >
+                Clear
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
