@@ -216,19 +216,45 @@ export function JobBoard() {
     [],
   );
 
-  const handleClearList = useCallback(() => {
+  const handleClearList = useCallback(async () => {
     if (jobs.length === 0) return;
-    // On the Applied tab, Clear List moves jobs back to Inbox (needs confirmation).
-    // Other tabs: non-destructive view-only clear.
+    // Applied: needs confirmation (bulk-unapply moves them back to Inbox).
     if (tab === "applied") {
       setUnapplyOpen(true);
       return;
     }
-    const cleared = jobs.length;
-    setJobs([]);
-    toast.success(
-      `Cleared ${cleared} job${cleared === 1 ? "" : "s"} from view. They'll come back on the next refresh or tab switch.`,
-    );
+    // Starred is user-curated — keep Clear List view-only there so a single
+    // click can't permanently dismiss something the user explicitly saved.
+    if (tab === "starred") {
+      const cleared = jobs.length;
+      setJobs([]);
+      toast.success(
+        `Cleared ${cleared} starred job${cleared === 1 ? "" : "s"} from view. They'll come back on tab switch.`,
+      );
+      return;
+    }
+    // Inbox: persist the dismissal (status=DELETED) so the jobs stay gone
+    // across tab switches and are excluded from future refresh dedupe.
+    const ids = jobs.map((j) => j.id);
+    try {
+      const res = await fetch("/api/jobs/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete", ids }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error ?? "Could not clear list.");
+        return;
+      }
+      setJobs([]);
+      const count: number = data.count ?? ids.length;
+      toast.success(
+        `Removed ${count} job${count === 1 ? "" : "s"} from your Inbox.`,
+      );
+    } catch {
+      toast.error("Could not clear list.");
+    }
   }, [jobs, tab]);
 
   const handleBulkUnapply = useCallback(async () => {
