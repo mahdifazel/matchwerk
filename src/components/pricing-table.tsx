@@ -247,8 +247,8 @@ function Footnote() {
         ))}
       </div>
       <p className="text-muted-foreground mt-4 text-xs leading-relaxed">
-        Tokens are added to your balance on purchase. Payments aren&apos;t live
-        yet, Stripe checkout is coming soon.
+        Tokens land in your balance the moment your payment is confirmed.
+        Secure checkout by Stripe.
       </p>
     </div>
   );
