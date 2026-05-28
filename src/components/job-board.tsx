@@ -76,6 +76,8 @@ export function JobBoard() {
   const [heroTitle, setHeroTitle] = useState<string | null>(null);
   const [unapplyOpen, setUnapplyOpen] = useState(false);
   const [unapplying, setUnapplying] = useState(false);
+  const [clearOpen, setClearOpen] = useState(false);
+  const [clearing, setClearing] = useState(false);
   const { balance } = useTokenBalance();
 
   const fetchJobs = useCallback(async () => {
@@ -233,9 +235,19 @@ export function JobBoard() {
       );
       return;
     }
-    // Inbox: persist the dismissal (status=DELETED) so the jobs stay gone
-    // across tab switches and are excluded from future refresh dedupe.
+    // Inbox: confirm first — the dismissal is persisted (status=DELETED)
+    // and the rows are excluded from future refresh dedupe, so it's hard to
+    // undo without DB access.
+    setClearOpen(true);
+  }, [jobs, tab]);
+
+  const handleConfirmClear = useCallback(async () => {
     const ids = jobs.map((j) => j.id);
+    if (ids.length === 0) {
+      setClearOpen(false);
+      return;
+    }
+    setClearing(true);
     try {
       const res = await fetch("/api/jobs/bulk", {
         method: "POST",
@@ -248,14 +260,17 @@ export function JobBoard() {
         return;
       }
       setJobs([]);
+      setClearOpen(false);
       const count: number = data.count ?? ids.length;
       toast.success(
         `Removed ${count} job${count === 1 ? "" : "s"} from your Inbox.`,
       );
     } catch {
       toast.error("Could not clear list.");
+    } finally {
+      setClearing(false);
     }
-  }, [jobs, tab]);
+  }, [jobs]);
 
   const handleBulkUnapply = useCallback(async () => {
     const ids = jobs.map((j) => j.id);
@@ -465,6 +480,33 @@ export function JobBoard() {
                 }}
               >
                 {unapplying ? "Moving…" : "Move to Inbox"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        <AlertDialog open={clearOpen} onOpenChange={setClearOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                Remove {jobs.length} job{jobs.length === 1 ? "" : "s"} from your Inbox?
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                These listings will be permanently dismissed and won&apos;t come
+                back on future searches. Starred and Applied jobs aren&apos;t
+                affected.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={clearing}>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                disabled={clearing}
+                onClick={(e) => {
+                  e.preventDefault();
+                  handleConfirmClear();
+                }}
+              >
+                {clearing ? "Removing…" : "Remove"}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
