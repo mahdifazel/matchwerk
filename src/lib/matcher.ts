@@ -109,13 +109,20 @@ async function scoreBatch(
 }
 
 /**
+ * Max scoring batches in flight at once. Tuned for two constraints:
+ *  - Anthropic's "concurrent connections" rate limit (firing all ~15 batches
+ *    at once tripped it: HTTP 429 rate_limit_error on the over-spill).
+ *  - Vercel's 60s function cap (the previous fully-sequential loop blew it).
+ * 4 in flight finishes a 150-job refresh in ~4 waves × ~7s ≈ 28s, well inside
+ * the cap and below most provider tiers' connection ceilings.
+ */
+const SCORING_CONCURRENCY = 4;
+
+/**
  * Score every job against the CV profile and the user's settings preferences.
- *
- * Batches are sent to the model **in parallel** so a 150-job refresh finishes
- * well inside Vercel's 60s function cap (sequential 7s/batch × ~15 batches
- * would otherwise time out). `Promise.allSettled` keeps one batch's rate-limit
- * or transient error from sinking the whole run — surviving batches' scores
- * are still applied; unscored jobs persist with `matchScore: null`.
+ * Batches run with bounded concurrency; `Promise.allSettled` keeps a single
+ * batch's transient error from sinking the whole run — surviving batches'
+ * scores are still applied; unscored jobs persist with `matchScore: null`.
  */
 export async function scoreJobs(
   profile: Profile,
@@ -128,16 +135,18 @@ export async function scoreJobs(
     batches.push(jobs.slice(i, i + BATCH_SIZE));
   }
 
-  const results = await Promise.allSettled(
-    batches.map((b) => scoreBatch(profile, jobTitles, prefs, b)),
-  );
-
   const scores = new Map<string, JobScore>();
-  for (const r of results) {
-    if (r.status === "fulfilled") {
-      for (const [id, score] of r.value) scores.set(id, score);
-    } else {
-      console.error("[matcher] scoring batch failed:", r.reason);
+  for (let i = 0; i < batches.length; i += SCORING_CONCURRENCY) {
+    const wave = batches.slice(i, i + SCORING_CONCURRENCY);
+    const settled = await Promise.allSettled(
+      wave.map((b) => scoreBatch(profile, jobTitles, prefs, b)),
+    );
+    for (const r of settled) {
+      if (r.status === "fulfilled") {
+        for (const [id, score] of r.value) scores.set(id, score);
+      } else {
+        console.error("[matcher] scoring batch failed:", r.reason);
+      }
     }
   }
   return scores;
