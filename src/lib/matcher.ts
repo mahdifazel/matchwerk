@@ -108,18 +108,37 @@ async function scoreBatch(
   return result;
 }
 
-/** Score every job against the CV profile and the user's settings preferences. */
+/**
+ * Score every job against the CV profile and the user's settings preferences.
+ *
+ * Batches are sent to the model **in parallel** so a 150-job refresh finishes
+ * well inside Vercel's 60s function cap (sequential 7s/batch × ~15 batches
+ * would otherwise time out). `Promise.allSettled` keeps one batch's rate-limit
+ * or transient error from sinking the whole run — surviving batches' scores
+ * are still applied; unscored jobs persist with `matchScore: null`.
+ */
 export async function scoreJobs(
   profile: Profile,
   jobTitles: string[],
   prefs: ScoringPreferences,
   jobs: JobToScore[],
 ): Promise<Map<string, JobScore>> {
-  const scores = new Map<string, JobScore>();
+  const batches: JobToScore[][] = [];
   for (let i = 0; i < jobs.length; i += BATCH_SIZE) {
-    const batch = jobs.slice(i, i + BATCH_SIZE);
-    const batchScores = await scoreBatch(profile, jobTitles, prefs, batch);
-    for (const [id, score] of batchScores) scores.set(id, score);
+    batches.push(jobs.slice(i, i + BATCH_SIZE));
+  }
+
+  const results = await Promise.allSettled(
+    batches.map((b) => scoreBatch(profile, jobTitles, prefs, b)),
+  );
+
+  const scores = new Map<string, JobScore>();
+  for (const r of results) {
+    if (r.status === "fulfilled") {
+      for (const [id, score] of r.value) scores.set(id, score);
+    } else {
+      console.error("[matcher] scoring batch failed:", r.reason);
+    }
   }
   return scores;
 }
