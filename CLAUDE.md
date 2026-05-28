@@ -173,7 +173,7 @@ Job_Hunter/
 10. **Charge** once the run has succeeded (so a failed run isn't billed): `TOKEN.PER_JOB_DISPLAY` (0.5) per surfaced job (fresh + repeats) plus `TOKEN.PER_JOB_RATING` (1) per freshly-rated job. A repeats-only run still bills the re-display but never re-rates.
 
 ### Token billing
-- **`src/lib/tokens.ts`** is the single billing surface. `TOKEN` holds the prices/limits: `SIGNUP_GRANT 150`, `CV_PARSE 25`, `PER_JOB_DISPLAY 0.5`, `PER_JOB_RATING 1`, `MAX_SEARCH_JOBS 150` (cap on jobs considered per refresh), `MAX_BOARD_JOBS 70` (cap on the Inbox listing). Balances move in 0.5 increments, hence `Float`.
+- **`src/lib/tokens.ts`** is the single billing surface. `TOKEN` holds the prices/limits: `SIGNUP_GRANT 300`, `CV_PARSE 25`, `PER_JOB_DISPLAY 0.5`, `PER_JOB_RATING 1`, `MAX_SEARCH_JOBS 150` (cap on jobs considered per refresh), `MAX_BOARD_JOBS 70` (cap on the Inbox listing). Balances move in 0.5 increments, hence `Float`.
 - **`getTokenAccount(userId)`** returns `{ balance, debt }`, applying the one-time 150 signup grant lazily on first access if `tokensGrantedAt` is null (an atomic `updateMany` claim, so it can't double-grant). Called on first Google sign-in (`createUser` event in `src/auth.ts`) and on email/password registration (`/api/register`).
 - **`charge(userId, amount, reason, metadata?)`** never blocks the run: the balance floors at 0 and any overspend is recorded as `tokenDebt` (the UI never shows a negative). One `TokenLedger` row per charge.
 - **`grant(userId, amount, reason)`** pays down debt before crediting balance.
@@ -275,7 +275,7 @@ npm run dev   # http://localhost:3000
 ```
 
 **First-run checklist:**
-1. Open `/register` (or `/login` → Google) and create an account → you receive 150 tokens.
+1. Open `/register` (or `/login` → Google) and create an account → you receive 300 tokens.
 2. Open `/settings`, drop a CV → wait for the toast (costs 25 tokens).
 3. Open `/`, click **Research jobs** → results stream in 5–60s depending on which sources are configured (costs 0.5/job shown + 1/job rated).
 
@@ -368,7 +368,7 @@ Strictly observed in the existing code:
 - **JobSpy needs Python 3.10+**. macOS system Python is often 3.9 — use Homebrew Python (`/opt/homebrew/bin/python3.12`).
 - **Hydration warning at boot** is harmless and comes from browser extensions (`cz-shortcut-listen`).
 - **Memory-resident state**: `src/lib/prisma.ts` keeps a single Prisma client across dev-mode hot reloads via `globalThis`. Don't `new PrismaClient()` anywhere else.
-- **Tokens are now purchasable (Stripe, test mode).** Beyond the 150-token signup grant, users top up on `/plans` via Stripe Checkout. Two **balance gates** exist (CV needs ≥ 25; Research needs > 0) plus admin rate limits — so AI usage *can* be blocked now (a change from the original "never block" design). `charge` itself still floors at 0 and accrues `tokenDebt`; the gates are what refuse. Stripe defaults to test mode; **live billing is supported** but gated — a `sk_live_…` key only works with `STRIPE_ALLOW_LIVE=true`, and going live also needs an activated Stripe account + live webhook (see §4 Payments, §8).
+- **Tokens are now purchasable (Stripe, test mode).** Beyond the 300-token signup grant, users top up on `/plans` via Stripe Checkout. Two **balance gates** exist (CV needs ≥ 25; Research needs > 0) plus admin rate limits — so AI usage *can* be blocked now (a change from the original "never block" design). `charge` itself still floors at 0 and accrues `tokenDebt`; the gates are what refuse. Stripe defaults to test mode; **live billing is supported** but gated — a `sk_live_…` key only works with `STRIPE_ALLOW_LIVE=true`, and going live also needs an activated Stripe account + live webhook (see §4 Payments, §8).
 - **Admin access** is DB-authoritative via `UserRole`. Bootstrap the first Super Admin with `SUPER_ADMIN_EMAILS` in `.env.local`, then manage roles in **Admin → Role Management**. No env var = no admin access (everyone is `USER`).
 - **Legacy single-tenant data** (`userId = null`) is claimed by the **first** account to register or sign in (`src/lib/claim.ts`, guarded by `userCount === 1`). On a fresh database with no orphan rows this is a no-op.
 

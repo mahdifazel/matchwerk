@@ -367,7 +367,7 @@ The same logic applies to `jobType`. For `source`, no UNKNOWN passes because eve
 
 > **Partially superseded (2026-05-25).** Tokens are now **purchasable via Stripe** (sandbox/test) on `/plans`, and two **balance gates** were added (`src/lib/limits.ts`): CV parse refuses below 25 tokens, Research refuses at 0 (402), plus admin rate limits (429). So usage *can* now be blocked — a deliberate reversal of "never block" for those two actions. `charge()` itself is unchanged (floors at 0, accrues `tokenDebt`); the gates run *before* it. Stripe is sandbox-only — no live billing.
 
-**Decision.** `src/lib/tokens.ts` charges for AI actions (CV parse 25; research 0.5/job displayed + 1/job rated) against a 150-token signup grant. `charge()` floors the balance at 0 and records any overspend as `tokenDebt` — the run **always proceeds**. Balances are `Float` because charges move in 0.5 increments. Charging happens *after* the work succeeds, and every charge writes one `TokenLedger` row.
+**Decision.** `src/lib/tokens.ts` charges for AI actions (CV parse 25; research 0.5/job displayed + 1/job rated) against a 300-token signup grant. `charge()` floors the balance at 0 and records any overspend as `tokenDebt` — the run **always proceeds**. Balances are `Float` because charges move in 0.5 increments. Charging happens *after* the work succeeds, and every charge writes one `TokenLedger` row.
 
 **Why meter at all.** AI calls cost real money (Sonnet per upload, Haiku per job × every refresh). Surfacing that as a visible balance makes the cost legible to the user instead of hiding it in an invoice — see decision #3 (the reason there are two models is the same: cost).
 
@@ -381,9 +381,9 @@ The same logic applies to `jobType`. For `source`, no UNKNOWN passes because eve
 
 ## 36. Lazy signup grant via `getTokenAccount`
 
-**Decision.** The 150-token signup grant isn't written at registration time by a dedicated step. Instead `getTokenAccount(userId)` applies it on first access if `tokensGrantedAt` is null, using an atomic `updateMany({ where: { id, tokensGrantedAt: null } })` claim so concurrent callers can't double-grant.
+**Decision.** The 300-token signup grant isn't written at registration time by a dedicated step. Instead `getTokenAccount(userId)` applies it on first access if `tokensGrantedAt` is null, using an atomic `updateMany({ where: { id, tokensGrantedAt: null } })` claim so concurrent callers can't double-grant.
 
-**Why lazy.** Two entry points create users — the Auth.js `createUser` event (first Google sign-in) and `POST /api/register` (email/password). Putting the grant in a single lazily-invoked accessor means both paths get it for free, and — crucially — **accounts that existed before billing was added** still receive their 150 the first time anything reads their balance. No backfill migration was needed.
+**Why lazy.** Two entry points create users — the Auth.js `createUser` event (first Google sign-in) and `POST /api/register` (email/password). Putting the grant in a single lazily-invoked accessor means both paths get it for free, and — crucially — **accounts that existed before billing was added** still receive their 300 the first time anything reads their balance. No backfill migration was needed.
 
 **Why the atomic claim.** `getTokenAccount` is called from `charge`, the header pill, the account page, and both sign-up paths. Without the `tokensGrantedAt: null` guard in the `updateMany`, two near-simultaneous first reads could each grant 150. The guard makes the grant idempotent: only the first writer flips the timestamp and increments the balance.
 

@@ -154,13 +154,13 @@ Sign in (Google or email/password)  ──►  Auth.js v5  ──►  JWT sessio
    │  the createUser event                    │  (bcrypt hash, then sign in)
    ▼                                          ▼
 claimOrphanDataForFirstUser(userId)   ── only when userCount === 1: adopt legacy
-getTokenAccount(userId)               ── apply the one-time 150-token signup grant
+getTokenAccount(userId)               ── apply the one-time 300-token signup grant
 
 Page request   ──► src/proxy.ts          ── redirects to /login when unauthenticated
 API request    ──► getSessionUserId()    ── returns userId or 401; every query scopes by it
 ```
 
-Auth is **Auth.js v5** with a Google provider and a Credentials (email/password) provider, JWT session strategy (`src/auth.ts` / `src/auth.config.ts`). Passwords are bcrypt-hashed; OAuth-only users have `password = null`. The first account to register or sign in adopts any pre-multi-tenancy rows (`userId = null`) via `claimOrphanDataForFirstUser`; every later account is a no-op. The signup grant (150 tokens) is applied lazily by `getTokenAccount` so accounts created before billing existed still receive it on first access.
+Auth is **Auth.js v5** with a Google provider and a Credentials (email/password) provider, JWT session strategy (`src/auth.ts` / `src/auth.config.ts`). Passwords are bcrypt-hashed; OAuth-only users have `password = null`. The first account to register or sign in adopts any pre-multi-tenancy rows (`userId = null`) via `claimOrphanDataForFirstUser`; every later account is a no-op. The signup grant (300 tokens) is applied lazily by `getTokenAccount` so accounts created before billing existed still receive it on first access.
 
 ### 3.1 CV upload
 
@@ -266,7 +266,7 @@ TokenLedger row { delta: -amount, balanceAfter, reason, metadata }
 grant(userId, amount, reason)   ── pays down debt first, then credits balance
 ```
 
-`src/lib/tokens.ts` is the only billing surface. Prices live in the `TOKEN` constant (`SIGNUP_GRANT 150`, `CV_PARSE 25`, `PER_JOB_DISPLAY 0.5`, `PER_JOB_RATING 1`). The balance is a `Float` because charges move in 0.5 increments. The client header pill (`useTokenBalance`) refetches `GET /api/tokens` whenever a charging action dispatches the `tokens-updated` window event (`notifyTokensUpdated()`).
+`src/lib/tokens.ts` is the only billing surface. Prices live in the `TOKEN` constant (`SIGNUP_GRANT 300`, `CV_PARSE 25`, `PER_JOB_DISPLAY 0.5`, `PER_JOB_RATING 1`). The balance is a `Float` because charges move in 0.5 increments. The client header pill (`useTokenBalance`) refetches `GET /api/tokens` whenever a charging action dispatches the `tokens-updated` window event (`notifyTokensUpdated()`).
 
 ### 3.3 Listing — `GET /api/jobs`
 
@@ -425,7 +425,7 @@ The design system lives entirely in `src/app/globals.css` under `@theme inline` 
 ## 7. Key technical decisions (in brief — see `docs/DECISIONS.md` for the why)
 
 - **Multi-tenant with Auth.js v5.** Google + email/password; JWT session. Every row is `userId`-scoped — there is no `"singleton"` id any more (`Profile` / `Settings` are `userId @unique`). Page routes gated by `src/proxy.ts`, API routes by `getSessionUserId()`. Legacy single-tenant rows are claimed by the first account.
-- **In-app token economy + Stripe (2026-05-25).** `src/lib/tokens.ts` meters AI usage (150-token signup grant; charges for CV parse and research) and tokens are now **purchasable via Stripe** (sandbox) on `/plans`. `charge()` still floors at 0 and records overspend as debt, but two **balance gates** (`src/lib/limits.ts`) now refuse CV parse below 25 tokens and Research at 0.
+- **In-app token economy + Stripe (2026-05-25).** `src/lib/tokens.ts` meters AI usage (300-token signup grant; charges for CV parse and research) and tokens are now **purchasable via Stripe** (sandbox) on `/plans`. `charge()` still floors at 0 and records overspend as debt, but two **balance gates** (`src/lib/limits.ts`) now refuse CV parse below 25 tokens and Research at 0.
 - **Real jobs only.** No fixtures, no mock data. Stubs return empty arrays rather than fake rows.
 - **Multi-provider AI (2026-05-25).** A provider abstraction (`src/lib/ai/*`, `runWithAi`) routes CV parse + scoring through the active provider (Claude Sonnet/Haiku or Gemini Flash) with a fallback chain, switchable in admin. Claude keeps the ephemeral cache on the CV system block.
 - **Tool-use / structured output over JSON parsing.** Claude uses tool-use with `tool_choice` forced; Gemini uses `responseSchema` JSON — both return a typed object, no JSON-from-text regex.

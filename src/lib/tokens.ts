@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 
 /** Token prices and limits. Balances move in 0.5 increments (hence Float). */
 export const TOKEN = {
-  SIGNUP_GRANT: 150,
+  SIGNUP_GRANT: 300,
   CV_PARSE: 25,
   PER_JOB_DISPLAY: 0.5,
   PER_JOB_RATING: 1,
