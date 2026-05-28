@@ -481,7 +481,7 @@ export function JobBoard() {
                 Clear {jobs.length} job{jobs.length === 1 ? "" : "s"} from view?
               </AlertDialogTitle>
               <AlertDialogDescription>
-                These jobs stay in your database — they&apos;re just hidden from
+                These jobs stay in your database, they&apos;re just hidden from
                 this view and will come back on the next Research.
               </AlertDialogDescription>
             </AlertDialogHeader>
