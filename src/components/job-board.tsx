@@ -10,7 +10,7 @@ import {
   Trash2,
 } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { EmptyState } from "@/components/empty-state";
 import { FilterBar, type Filters } from "@/components/filter-bar";
@@ -76,8 +76,11 @@ export function JobBoard() {
   const [heroTitle, setHeroTitle] = useState<string | null>(null);
   const [unapplyOpen, setUnapplyOpen] = useState(false);
   const [unapplying, setUnapplying] = useState(false);
-  const [clearOpen, setClearOpen] = useState(false);
-  const [clearing, setClearing] = useState(false);
+  // IDs the user has "Cleared" from the Inbox view. Soft-hide only — the rows
+  // stay in the DB. We filter fetched jobs through this ref on every load so a
+  // tab switch doesn't bring them back; a fresh Research click resets it so
+  // they reappear (along with any new fresh listings).
+  const clearedIdsRef = useRef<Set<string>>(new Set());
   const { balance } = useTokenBalance();
 
   const fetchJobs = useCallback(async () => {
@@ -94,7 +97,14 @@ export function JobBoard() {
     try {
       const res = await fetch(`/api/jobs?${params.toString()}`);
       const data = await res.json();
-      setJobs(data.jobs ?? []);
+      const incoming: JobDTO[] = data.jobs ?? [];
+      // Suppress jobs the user soft-cleared from the Inbox earlier in this
+      // session; Research clears the ref so they come back.
+      setJobs(
+        clearedIdsRef.current.size === 0
+          ? incoming
+          : incoming.filter((j) => !clearedIdsRef.current.has(j.id)),
+      );
     } catch {
       toast.error("Could not load jobs.");
     } finally {
@@ -175,6 +185,9 @@ export function JobBoard() {
         { description: breakdown },
       );
       notifyTokensUpdated();
+      // A fresh Research means the user wants to see everything again, so
+      // forget anything they soft-cleared from the Inbox view.
+      clearedIdsRef.current = new Set();
       await fetchJobs();
     } catch {
       toast.error("Refresh failed.");
@@ -218,59 +231,24 @@ export function JobBoard() {
     [],
   );
 
-  const handleClearList = useCallback(async () => {
+  const handleClearList = useCallback(() => {
     if (jobs.length === 0) return;
-    // Applied: needs confirmation (bulk-unapply moves them back to Inbox).
+    // Applied: bulk-unapply needs confirmation (moves jobs back to Inbox).
     if (tab === "applied") {
       setUnapplyOpen(true);
       return;
     }
-    // Starred is user-curated — keep Clear List view-only there so a single
-    // click can't permanently dismiss something the user explicitly saved.
-    if (tab === "starred") {
-      const cleared = jobs.length;
-      setJobs([]);
-      toast.success(
-        `Cleared ${cleared} starred job${cleared === 1 ? "" : "s"} from view. They'll come back on tab switch.`,
-      );
-      return;
-    }
-    // Inbox: confirm first — the dismissal is persisted (status=DELETED)
-    // and the rows are excluded from future refresh dedupe, so it's hard to
-    // undo without DB access.
-    setClearOpen(true);
+    // Inbox + Starred: soft clear only. The rows stay in the DB; we just
+    // remember the visible IDs and filter them out of subsequent fetches in
+    // this session so a tab switch doesn't bring them back. A Research click
+    // resets the ref (see handleRefresh) so they reappear.
+    const cleared = jobs.length;
+    for (const j of jobs) clearedIdsRef.current.add(j.id);
+    setJobs([]);
+    toast.success(
+      `Cleared ${cleared} job${cleared === 1 ? "" : "s"} from view. They'll come back on the next Research.`,
+    );
   }, [jobs, tab]);
-
-  const handleConfirmClear = useCallback(async () => {
-    const ids = jobs.map((j) => j.id);
-    if (ids.length === 0) {
-      setClearOpen(false);
-      return;
-    }
-    setClearing(true);
-    try {
-      const res = await fetch("/api/jobs/bulk", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "delete", ids }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        toast.error(data.error ?? "Could not clear list.");
-        return;
-      }
-      setJobs([]);
-      setClearOpen(false);
-      const count: number = data.count ?? ids.length;
-      toast.success(
-        `Removed ${count} job${count === 1 ? "" : "s"} from your Inbox.`,
-      );
-    } catch {
-      toast.error("Could not clear list.");
-    } finally {
-      setClearing(false);
-    }
-  }, [jobs]);
 
   const handleBulkUnapply = useCallback(async () => {
     const ids = jobs.map((j) => j.id);
@@ -480,33 +458,6 @@ export function JobBoard() {
                 }}
               >
                 {unapplying ? "Moving…" : "Move to Inbox"}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-
-        <AlertDialog open={clearOpen} onOpenChange={setClearOpen}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>
-                Remove {jobs.length} job{jobs.length === 1 ? "" : "s"} from your Inbox?
-              </AlertDialogTitle>
-              <AlertDialogDescription>
-                These listings will be permanently dismissed and won&apos;t come
-                back on future searches. Starred and Applied jobs aren&apos;t
-                affected.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel disabled={clearing}>Cancel</AlertDialogCancel>
-              <AlertDialogAction
-                disabled={clearing}
-                onClick={(e) => {
-                  e.preventDefault();
-                  handleConfirmClear();
-                }}
-              >
-                {clearing ? "Removing…" : "Remove"}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
