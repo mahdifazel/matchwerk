@@ -27,8 +27,8 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Matchwerk — Product Design jobs, ranked for you",
-  description: "An AI-matched feed of Product Design jobs in Germany.",
+  title: "Matchwerk — Roles matched to you, ranked for you",
+  description: "An AI-matched feed of jobs in Germany.",
 };
 
 export default function RootLayout({
