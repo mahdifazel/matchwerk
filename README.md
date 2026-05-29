@@ -13,8 +13,8 @@ A multi-tenant AI job-search web app for Product Design (and other) roles in Ger
 - **Admin backoffice** (`/admin`, role-gated). User management (search/filter, activate/deactivate, token grant/deduct, refunds, GDPR export/erase, impersonate), an analytics dashboard (CSV + PDF export), plans & pricing editor, system settings (AI providers, job-source keys, rate limits, budget alerts), API health monitoring, announcements, a Stripe-events inspector, and role management. Roles: `USER` / `ADMIN` / `SUPER_ADMIN`.
 - **Editable profile.** Skills, tools, industries, keywords, and the summary are all editable in Settings without re-uploading the CV (PATCH on `/api/cv`).
 - **Personalized matching, end-to-end.** Search queries come from your saved job titles; scoring derives the candidate role from the CV (no hardcoded profession) and factors in your seniority / job-type / location preferences. Upload a CV for a different role and the system retargets — the next refresh stops surfacing the old profession.
-- **Five real job sources** ([details](#job-sources)). Sources without API credentials surface as disabled — no fixture data is ever shown.
-- **Admin-managed source keys.** API keys for JSearch, Fantastic.jobs, and Adzuna are global platform secrets managed in the admin backoffice (**System Settings → Job sources**), resolved DB-first with `.env.local` fallback and returned masked. (The old per-user editor in client Settings was removed in favor of central management.)
+- **Six real job sources** ([details](#job-sources)). Sources without API credentials surface as disabled — no fixture data is ever shown.
+- **Admin-managed source keys.** API keys for JSearch, Fantastic.jobs, Adzuna, and Jooble are global platform secrets managed in the admin backoffice (**System Settings → Job sources**), resolved DB-first with `.env.local` fallback and returned masked. (The old per-user editor in client Settings was removed in favor of central management.)
 - **Tiered orchestration.** Primary sources run in parallel; backup runs only when the primary tier is short; an open-source scraping fallback is wired but rate-limit-aware.
 - **Cross-source deduplication.** A SHA-1 hash of `normalize(title)|normalize(company)|normalize(city)` (with gender markers like `(m/w/d)` stripped) collapses duplicates from different boards.
 - **Smart protection.** Cross-source title variants of jobs you've starred or applied to are filtered out before scoring — *"Senior Product Designer"* and *"Senior Product Designer — parental leave cover"* at the same company in the same city don't both show up.
@@ -83,6 +83,7 @@ Two gitignored files. See `.env.example` for the canonical list and inline docs.
 | `.env.local` | `JSEARCH_API_KEY` | Optional. RapidAPI key for JSearch. |
 | `.env.local` | `FANTASTIC_JOBS_API_KEY` | Optional. RapidAPI key for Active Jobs DB (same RapidAPI account as JSearch is fine). |
 | `.env.local` | `ADZUNA_APP_ID` + `ADZUNA_APP_KEY` | Optional. Free credentials at [developer.adzuna.com](https://developer.adzuna.com/). |
+| `.env.local` | `JOOBLE_API_KEY` | Optional. Free API key from [jooble.org/api/about](https://jooble.org/api/about). |
 | `.env.local` | `JOBSPY_SITES` | Optional. Comma-separated override; default `indeed,glassdoor`. |
 
 > The AI and source API keys above are **fallbacks**. Once a matching key is saved in the **admin backoffice** (System Settings), the DB-stored value wins and you can leave the env entry blank. Clear the DB entry to fall back to env again.
@@ -113,6 +114,7 @@ Two gitignored files. See `.env.example` for the canonical list and inline docs.
 | **JSearch** | primary | RapidAPI key | Aggregates LinkedIn / Indeed / Glassdoor / ZipRecruiter. |
 | **Fantastic.jobs** (Active Jobs DB) | primary | RapidAPI key | 3M+ career-site listings via 54 ATS platforms (Workday, Greenhouse, Ashby, …). Hourly refresh. Title filter is a Postgres tsquery. |
 | **Adzuna** | backup | free credentials | Germany/EU coverage. Queried only when the primary tier collectively returns fewer than 10 results. |
+| **Jooble** | backup | free API key | EU-wide aggregator (jooble.org). Same trigger as Adzuna — runs alongside it when the primary tier returns fewer than 10 results. |
 | **JobSpy** (open-source) | fallback | Python venv | Scrapes Indeed and Glassdoor by default. Skipped when primary returns enough; opt-in for the LinkedIn scraper via `JOBSPY_SITES`. |
 
 Adding a source requires (a) a new value on the `JobSourceId` Prisma enum + migration, (b) a new adapter implementing the `JobSource` interface, (c) entries in `ALL_SOURCES` and `SOURCE_META`, (d) an env var stub. The orchestrator picks it up automatically.

@@ -41,7 +41,7 @@ A walk through how Matchwerk is put together: the system shape, the directory la
 │   PostgreSQL 16          Anthropic API           Job source APIs       │
 │   (Docker :5433)         (Sonnet + Haiku)        BA, JSearch,          │
 │   via @prisma/adapter-pg                         Fantastic.jobs,       │
-│   User-scoped rows +                             Adzuna                │
+│   User-scoped rows +                             Adzuna, Jooble        │
 │   TokenLedger                                                          │
 │                          Python venv (JobSpy)                          │
 │                          spawned subprocess                            │
@@ -210,7 +210,7 @@ POST /api/jobs/refresh
 searchEnabledSources({ jobTitles, locations }, settings.defaultSources)
    │
    ├─► Tier 1 (primary)  : BA + JSearch + Fantastic.jobs ──► Promise.all
-   ├─► Tier 2 (backup)   : Adzuna  ── runs only if Tier 1 < 10 results
+   ├─► Tier 2 (backup)   : Adzuna + Jooble  ── runs only if Tier 1 < 10 results
    └─► Tier 3 (fallback) : JobSpy  ── runs unless blocked
    │
    ▼

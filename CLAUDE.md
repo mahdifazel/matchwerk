@@ -136,6 +136,7 @@ Job_Hunter/
             ├── jsearch.ts          # RapidAPI aggregator (reads getSourceCredentials("JSEARCH"))
             ├── fantastic-jobs.ts   # RapidAPI Active Jobs DB (tsquery title filter)
             ├── adzuna.ts           # Adzuna /de/search
+            ├── jooble.ts           # Jooble aggregator (POST /api/{apiKey})
             └── jobspy.ts           # Spawns the Python bridge
 ```
 
@@ -161,7 +162,7 @@ Job_Hunter/
 2. Reads `Settings` (job titles, default locations, default seniority / job types). **Which sources run is now a global admin setting** (`getEnabledSourceIds`), not per-user.
 3. **`searchEnabledSources`** (`src/lib/sources/search.ts`) runs sources by tier:
    - **Primary** (`BA_JOBBOERSE`, `JSEARCH`, `FANTASTIC_JOBS`) in parallel.
-   - **Backup** (`ADZUNA`) only if the primary tier returned fewer than **10** results total.
+   - **Backup** (`ADZUNA`, `JOOBLE`) only if the primary tier returned fewer than **10** results total.
    - **Fallback** (`JOBSPY`) runs unless blocked (disabled / no key / adapter not connected).
    - Each source reports `{ ran, count, skippedReason? }`.
 4. `dedupeRawJobs` collapses cross-source duplicates by SHA-1 of `normalize(title)|normalize(company)|normalize(city)` (after stripping gender markers like `(m/w/d)`).
@@ -231,7 +232,7 @@ Order: starred/inbox sort by `matchScore DESC, fetchedAt DESC`; applied sorts by
 - **`Settings`** — one per user (`userId String? @unique`) — `jobTitles[]`, `defaultLocations[]`, `defaultSeniority[]`, `defaultJobTypes[]`, `defaultSources[]`.
 - **`SourceCredential`** — **legacy/unused**. Source keys are now global (`PlatformCredential`); this per-user table is kept only for historical rows.
 - **`Job`** — `userId`, `source` (enum), `externalId`, `dedupeHash`, title/company/location/url/description, `publisher` (for aggregators), `jobType`/`seniority` enums, `publishedAt`, `matchScore`/`matchExplanation`/`missingSkills[]`/`scoredAt`, `status` (`NEW`/`STARRED`/`APPLIED`/`DELETED`), `appliedAt`. Dedupe uniqueness is **per user** (`@@unique([userId, dedupeHash])`). Indexed by `[userId, status]`, `status`, and `source`.
-- **Enums** — `UserRole` (`USER`/`ADMIN`/`SUPER_ADMIN`); `JobSourceId` (`BA_JOBBOERSE`, `JSEARCH`, `ADZUNA`, `JOBSPY`, `FANTASTIC_JOBS`, plus 6 legacy values kept for historical rows: `INDEED`, `LINKEDIN`, `STEPSTONE`, `XING`, `GLASSDOOR`, `MONSTER`); `JobStatus`; `Seniority`; `JobType`.
+- **Enums** — `UserRole` (`USER`/`ADMIN`/`SUPER_ADMIN`); `JobSourceId` (`BA_JOBBOERSE`, `JSEARCH`, `ADZUNA`, `JOBSPY`, `FANTASTIC_JOBS`, `JOOBLE`, plus 6 legacy values kept for historical rows: `INDEED`, `LINKEDIN`, `STEPSTONE`, `XING`, `GLASSDOOR`, `MONSTER`); `JobStatus`; `Seniority`; `JobType`.
 
 > `userId` is nullable on the four data models only so pre-multi-tenancy rows survive migration as orphans until the first account claims them (`src/lib/claim.ts`). New rows always get the authenticated `userId`, and every query scopes by it.
 
@@ -324,13 +325,14 @@ npm run dev   # http://localhost:3000
 | `JSEARCH_API_KEY` | `jsearch` adapter | RapidAPI key for JSearch |
 | `FANTASTIC_JOBS_API_KEY` | `fantastic-jobs` adapter | RapidAPI key for Active Jobs DB. Can reuse the JSearch key (same RapidAPI account). |
 | `ADZUNA_APP_ID` + `ADZUNA_APP_KEY` | `adzuna` adapter | Free credentials at developer.adzuna.com |
+| `JOOBLE_API_KEY` | `jooble` adapter | API key from your Jooble account (jooble.org/api/about). Key is sent as the URL path on each POST. |
 | `JOBSPY_SITES` | `jobspy` adapter | Optional comma-separated override. Default: `indeed,glassdoor`. LinkedIn intentionally left out — it aggressively blocks scrapers. |
 
 Sources without their key set surface in the UI as disabled with the hint *"Key needed"* — the toggle is greyed and `configured: false` comes back from `GET /api/sources`.
 
 **Admin-stored keys override env vars.** AI keys and source keys are **global**: a value saved in **Admin → System Settings** lives in `PlatformCredential` (keyed by the env-var name) and takes precedence over `process.env`. Resolution is `getPlatformCredential(name)` in `src/lib/platform.ts` → DB → env. The env entries above are fallbacks for first-run / CI; clear the DB entry to fall back to env again. (There is no longer a per-user credential editor in client Settings.)
 
-The mapping of source → editable fields → env-fallback name lives in `SOURCE_CREDENTIAL_SCHEMA` (`src/lib/credential-schema.ts`). Editable in admin: `JSEARCH` (1 field), `FANTASTIC_JOBS` (1 field), `ADZUNA` (2 fields). `BA_JOBBOERSE` and `JOBSPY` have no editable credentials.
+The mapping of source → editable fields → env-fallback name lives in `SOURCE_CREDENTIAL_SCHEMA` (`src/lib/credential-schema.ts`). Editable in admin: `JSEARCH` (1 field), `FANTASTIC_JOBS` (1 field), `ADZUNA` (2 fields), `JOOBLE` (1 field). `BA_JOBBOERSE` and `JOBSPY` have no editable credentials.
 
 **Security**: `.env` and `.env.local` are both gitignored. Never paste secrets in chat or in tracked files. `secrets` columns are never returned over the wire — only a `••••<last4>` masked tail.
 
