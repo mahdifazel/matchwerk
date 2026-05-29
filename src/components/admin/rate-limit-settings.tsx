@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { NumberInput } from "@/components/ui/number-input";
 import { Skeleton } from "@/components/ui/skeleton";
 
 type Limits = { researchPerHour: number; cvPerDay: number };
@@ -52,23 +52,21 @@ export function RateLimitSettings() {
       <div className="grid max-w-md gap-4 sm:grid-cols-2">
         <div className="space-y-1.5">
           <Label className="text-xs">Research runs / hour</Label>
-          <Input
-            type="number"
-            min="0"
-            step="1"
+          <NumberInput
+            min={0}
+            allowDecimal={false}
             value={limits.researchPerHour}
-            onChange={(e) => setLimits({ ...limits, researchPerHour: Number(e.target.value) })}
+            onValueChange={(n) => setLimits({ ...limits, researchPerHour: n })}
             className="h-9"
           />
         </div>
         <div className="space-y-1.5">
           <Label className="text-xs">CV uploads / day</Label>
-          <Input
-            type="number"
-            min="0"
-            step="1"
+          <NumberInput
+            min={0}
+            allowDecimal={false}
             value={limits.cvPerDay}
-            onChange={(e) => setLimits({ ...limits, cvPerDay: Number(e.target.value) })}
+            onValueChange={(n) => setLimits({ ...limits, cvPerDay: n })}
             className="h-9"
           />
         </div>

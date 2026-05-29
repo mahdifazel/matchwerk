@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { NumberInput } from "@/components/ui/number-input";
 import { Skeleton } from "@/components/ui/skeleton";
 
 type Config = {
@@ -111,7 +112,7 @@ export function EmailSettings() {
           <Input value={config.host} onChange={(e) => set("host", e.target.value)} placeholder="smtp.example.com" className="h-9" />
         </Field>
         <Field label="Port">
-          <Input type="number" min="1" max="65535" value={config.port} onChange={(e) => set("port", Number(e.target.value))} className="h-9" />
+          <NumberInput min={1} max={65535} allowDecimal={false} fallback={587} value={config.port} onValueChange={(n) => set("port", n)} className="h-9" />
         </Field>
         <Field label="Username">
           <Input value={config.user} onChange={(e) => set("user", e.target.value)} placeholder="smtp username" className="h-9" />

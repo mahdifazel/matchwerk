@@ -8,6 +8,7 @@ import { StatusBadge } from "@/components/admin/admin-ui";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { NumberInput } from "@/components/ui/number-input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatEur } from "@/lib/plans";
 import { cn } from "@/lib/utils";
@@ -93,16 +94,16 @@ function Fields({
         <Input value={draft.tagline} onChange={(e) => set("tagline", e.target.value)} className="h-9" />
       </Field>
       <Field label="Price (€)">
-        <Input type="number" min="0" step="0.01" value={draft.priceEur} onChange={(e) => set("priceEur", Number(e.target.value))} className="h-9" />
+        <NumberInput min={0} value={draft.priceEur} onValueChange={(n) => set("priceEur", n)} className="h-9" />
       </Field>
       <Field label="Tokens">
-        <Input type="number" min="0" step="1" value={draft.tokens} onChange={(e) => set("tokens", Number(e.target.value))} className="h-9" />
+        <NumberInput min={0} allowDecimal={false} value={draft.tokens} onValueChange={(n) => set("tokens", n)} className="h-9" />
       </Field>
       <Field label="Validity (months)">
-        <Input type="number" min="0" step="1" value={draft.durationMonths} onChange={(e) => set("durationMonths", Number(e.target.value))} className="h-9" />
+        <NumberInput min={0} allowDecimal={false} value={draft.durationMonths} onValueChange={(n) => set("durationMonths", n)} className="h-9" />
       </Field>
       <Field label="Sort order">
-        <Input type="number" min="0" step="1" value={draft.sortOrder} onChange={(e) => set("sortOrder", Number(e.target.value))} className="h-9" />
+        <NumberInput min={0} allowDecimal={false} value={draft.sortOrder} onValueChange={(n) => set("sortOrder", n)} className="h-9" />
       </Field>
       <div className="flex items-center gap-2 sm:col-span-2">
         <Toggle on={draft.recommended} onClick={() => set("recommended", !draft.recommended)} label="Recommended" />

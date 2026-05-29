@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { NumberInput } from "@/components/ui/number-input";
 import { Skeleton } from "@/components/ui/skeleton";
 
 type Config = { tokensPerDay: number; aiRequestsPerDay: number; aiErrorsPerDay: number };
@@ -66,12 +66,11 @@ function Num({ label, value, onChange }: { label: string; value: number; onChang
   return (
     <div className="space-y-1.5">
       <Label className="text-xs">{label}</Label>
-      <Input
-        type="number"
-        min="0"
-        step="1"
+      <NumberInput
+        min={0}
+        allowDecimal={false}
         value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
+        onValueChange={onChange}
         className="h-9"
       />
     </div>
