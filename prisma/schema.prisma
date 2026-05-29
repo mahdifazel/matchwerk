@@ -17,6 +17,7 @@ enum JobSourceId {
   ADZUNA
   JOBSPY
   FANTASTIC_JOBS
+  JOOBLE
   // Legacy values kept so historical rows stay valid; no longer surfaced in the UI.
   INDEED
   LINKEDIN

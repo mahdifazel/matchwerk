@@ -87,6 +87,13 @@ export const SOURCE_META: SourceMeta[] = [
     note: "Germany/EU backup when JSearch is short",
   },
   {
+    id: "JOOBLE",
+    label: "Jooble",
+    tier: "backup",
+    connected: true,
+    note: "Aggregator with strong EU coverage · jooble.org",
+  },
+  {
     id: "JOBSPY",
     label: "JobSpy",
     tier: "fallback",

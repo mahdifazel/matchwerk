@@ -55,6 +55,16 @@ export const SOURCE_CREDENTIAL_SCHEMA: Partial<
       },
     ],
   },
+  JOOBLE: {
+    fields: [
+      {
+        id: "apiKey",
+        label: "API key",
+        envFallback: "JOOBLE_API_KEY",
+        secret: true,
+      },
+    ],
+  },
 };
 
 export function hasCredentialEditor(sourceId: JobSourceId): boolean {
