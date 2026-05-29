@@ -34,7 +34,6 @@ import {
   ALL_LOCATION_IDS,
   ALL_SENIORITY,
   ALL_SOURCE_IDS,
-  SOURCE_META,
 } from "@/lib/constants";
 import { LOW_TOKEN_THRESHOLD } from "@/lib/plans";
 import type { JobDTO, RefreshResult, SettingsDTO } from "@/lib/types";
@@ -44,8 +43,6 @@ import {
   useTokenBalance,
 } from "@/lib/use-token-balance";
 import { cn } from "@/lib/utils";
-
-const SOURCE_LABEL = new Map(SOURCE_META.map((s) => [s.id, s.label]));
 
 const ALL_FILTERS: Filters = {
   locations: [...ALL_LOCATION_IDS],
@@ -168,12 +165,6 @@ export function JobBoard() {
         return;
       }
       const result = data as RefreshResult;
-      const breakdown = result.reports
-        .map((r) => {
-          const label = SOURCE_LABEL.get(r.id) ?? r.id;
-          return r.ran ? `${label}: ${r.count}` : `${label}: skipped`;
-        })
-        .join(" · ");
       const spent = result.tokens?.charged ?? 0;
       const spentText =
         spent > 0 ? ` · spent ${formatTokens(spent)} tokens` : "";
@@ -183,7 +174,6 @@ export function JobBoard() {
           : `No new jobs — scanned ${result.scanned} listings`) +
           spentText +
           ".",
-        { description: breakdown },
       );
       notifyTokensUpdated();
       // A fresh Research means the user wants to see everything again, so
