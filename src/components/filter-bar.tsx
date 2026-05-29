@@ -181,10 +181,17 @@ export function FilterBar({
         <Slider
           className="min-w-32 flex-1 sm:max-w-64"
           min={0}
-          max={MATCH_SCORE_MAX}
+          // Visual track spans 0..100 so the "90→100" tail is always a
+          // visible sliver of the active range — at the previous max=90 the
+          // active fill collapsed to 0px at value=90 and read as "empty".
+          max={100}
           step={MATCH_SCORE_STEP}
           value={filters.minScore}
-          onValueChange={(minScore) => onChange({ ...filters, minScore })}
+          onValueChange={(minScore) =>
+            // Functional cap: threshold never exceeds 90, matching the spec
+            // and the API clamp (Math.min(90, …) in /api/jobs).
+            onChange({ ...filters, minScore: Math.min(MATCH_SCORE_MAX, minScore) })
+          }
           inverted
           showTooltip
           tooltipContent={(v) => `${v}%+`}
