@@ -151,44 +151,72 @@ export function FilterBar({
   onReset: () => void;
 }) {
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <span className="eyebrow mr-1 text-[0.7rem]">Refine by</span>
+    <div className="space-y-3">
+      {/* Row 1 — discrete filters. The eyebrow anchors the row, the dropdowns
+          flow with consistent height, and Reset sits on the far right after
+          a hairline separator so it never gets confused with a filter chip. */}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="eyebrow shrink-0 text-[0.7rem]">Refine by</span>
 
-      <FilterMenu
-        label="Location"
-        options={LOCATION_OPTIONS.map((l) => ({ id: l.id, label: l.label }))}
-        selected={filters.locations}
-        onChange={(locations) => onChange({ ...filters, locations })}
-      />
-      <FilterMenu
-        label="Seniority"
-        options={SENIORITY_OPTIONS.map((s) => ({ id: s.id, label: s.label }))}
-        selected={filters.seniority}
-        onChange={(seniority) => onChange({ ...filters, seniority })}
-      />
-      <FilterMenu
-        label="Job type"
-        options={JOB_TYPE_OPTIONS.map((t) => ({ id: t.id, label: t.label }))}
-        selected={filters.jobTypes}
-        onChange={(jobTypes) => onChange({ ...filters, jobTypes })}
-      />
-      <FilterMenu
-        label="Language"
-        options={LANGUAGE_OPTIONS.map((l) => ({ id: l.id, label: l.label }))}
-        selected={filters.languages}
-        onChange={(languages) => onChange({ ...filters, languages })}
-      />
-      <DateFilterMenu
-        value={filters.datePosted}
-        onChange={(datePosted) => onChange({ ...filters, datePosted })}
-      />
+        <FilterMenu
+          label="Location"
+          options={LOCATION_OPTIONS.map((l) => ({ id: l.id, label: l.label }))}
+          selected={filters.locations}
+          onChange={(locations) => onChange({ ...filters, locations })}
+        />
+        <FilterMenu
+          label="Seniority"
+          options={SENIORITY_OPTIONS.map((s) => ({ id: s.id, label: s.label }))}
+          selected={filters.seniority}
+          onChange={(seniority) => onChange({ ...filters, seniority })}
+        />
+        <FilterMenu
+          label="Job type"
+          options={JOB_TYPE_OPTIONS.map((t) => ({ id: t.id, label: t.label }))}
+          selected={filters.jobTypes}
+          onChange={(jobTypes) => onChange({ ...filters, jobTypes })}
+        />
+        <FilterMenu
+          label="Language"
+          options={LANGUAGE_OPTIONS.map((l) => ({ id: l.id, label: l.label }))}
+          selected={filters.languages}
+          onChange={(languages) => onChange({ ...filters, languages })}
+        />
+        <DateFilterMenu
+          value={filters.datePosted}
+          onChange={(datePosted) => onChange({ ...filters, datePosted })}
+        />
 
-      <div className="order-last flex h-7 w-full min-w-0 items-center gap-3 sm:order-none sm:ml-2 sm:w-auto sm:flex-1">
-        <span className="text-muted-foreground text-[0.8rem] whitespace-nowrap">
-          Match
+        <div className="ml-auto flex items-center gap-2">
+          <div className="bg-border/70 h-5 w-px shrink-0" aria-hidden />
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onReset}
+            className="text-muted-foreground hover:text-foreground h-7 gap-1.5 px-2 text-xs"
+          >
+            <RotateCcw className="size-3.5" />
+            Reset
+          </Button>
+        </div>
+      </div>
+
+      {/* Hairline separator visually splits the discrete row above from the
+          continuous (slider) row below. Same tone as the parent ring so it
+          reads as structure, not chrome. */}
+      <div className="bg-border/50 h-px w-full" aria-hidden />
+
+      {/* Row 2 — Match-score threshold slider. Gets the full row width so the
+          90→100 tail (visible sliver after `max={100}`) is easy to land on
+          with a click. Endpoints are labeled ("Any" → "Top picks") so the
+          direction of the threshold is unambiguous. */}
+      <div className="flex flex-wrap items-center gap-3 sm:flex-nowrap">
+        <span className="eyebrow shrink-0 text-[0.7rem]">Match</span>
+        <span className="text-muted-foreground/80 text-[0.72rem] shrink-0 tabular-nums">
+          Any
         </span>
         <Slider
-          className="min-w-32 flex-1 sm:max-w-64"
+          className="min-w-32 flex-1"
           min={0}
           // Visual track spans 0..100 so the "90→100" tail is always a
           // visible sliver of the active range — at the previous max=90 the
@@ -207,21 +235,18 @@ export function FilterBar({
           ariaLabel="Minimum match score"
           ariaValueText={(v) => `${v} percent match or higher`}
         />
-        <span className="text-foreground w-9 shrink-0 text-right text-[0.8rem] font-medium tabular-nums">
-          {filters.minScore}%+
+        <span className="text-muted-foreground/80 text-[0.72rem] shrink-0 tabular-nums">
+          Top picks
+        </span>
+        <span
+          className={
+            (filters.minScore > 0 ? "text-foreground" : "text-muted-foreground") +
+            " w-12 shrink-0 text-right text-[0.8rem] font-medium tabular-nums"
+          }
+        >
+          {filters.minScore > 0 ? `${filters.minScore}%+` : "—"}
         </span>
       </div>
-
-      <Button
-        variant="ghost"
-        size="icon"
-        aria-label="Reset filters"
-        title="Reset filters"
-        className="text-muted-foreground ml-auto size-7"
-        onClick={onReset}
-      >
-        <RotateCcw className="size-3.5" />
-      </Button>
     </div>
   );
 }
