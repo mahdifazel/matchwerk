@@ -22,6 +22,7 @@ import {
   LOCATION_OPTIONS,
   SENIORITY_OPTIONS,
 } from "@/lib/constants";
+import { cn } from "@/lib/utils";
 
 // Match-score filter: a "minimum threshold" slider. Steps of 10 from 0–90;
 // the selected value means "show jobs scoring value% → 100%".
@@ -46,16 +47,19 @@ function FilterMenu({
   options,
   selected,
   onChange,
+  className,
 }: {
   label: string;
   options: Option[];
   selected: string[];
   onChange: (next: string[]) => void;
+  className?: string;
 }) {
   const activeCount = options.filter(
     (o) => !o.disabled && selected.includes(o.id),
   ).length;
   const total = options.filter((o) => !o.disabled).length;
+  const narrowed = activeCount !== total;
 
   function toggle(id: string, checked: boolean) {
     onChange(checked ? [...selected, id] : selected.filter((s) => s !== id));
@@ -64,11 +68,23 @@ function FilterMenu({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        render={<Button variant="outline" size="sm" className="gap-1.5" />}
+        render={
+          <Button
+            variant="outline"
+            size="sm"
+            className={cn("gap-1.5", className)}
+            data-active={narrowed || undefined}
+          />
+        }
       >
-        {label}
-        <span className="text-muted-foreground tabular-nums">
-          {activeCount === total ? "All" : activeCount}
+        <span className="truncate">{label}</span>
+        <span
+          className={cn(
+            "tabular-nums",
+            narrowed ? "text-foreground font-medium" : "text-muted-foreground",
+          )}
+        >
+          {narrowed ? activeCount : "All"}
         </span>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-52">
@@ -102,19 +118,33 @@ function FilterMenu({
 function DateFilterMenu({
   value,
   onChange,
+  className,
 }: {
   value: DatePostedId;
   onChange: (next: DatePostedId) => void;
+  className?: string;
 }) {
   const active = DATE_POSTED_OPTIONS.find((d) => d.id === value);
+  const narrowed = value !== "any";
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        render={<Button variant="outline" size="sm" className="gap-1.5" />}
+        render={
+          <Button
+            variant="outline"
+            size="sm"
+            className={cn("gap-1.5", className)}
+            data-active={narrowed || undefined}
+          />
+        }
       >
-        Date posted
-        <span className="text-muted-foreground">
-          {active && active.id !== "any" ? active.label : "Any time"}
+        <span className="truncate">Date posted</span>
+        <span
+          className={cn(
+            narrowed ? "text-foreground font-medium" : "text-muted-foreground",
+          )}
+        >
+          {active && narrowed ? active.label : "Any time"}
         </span>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-52">
@@ -151,101 +181,107 @@ export function FilterBar({
   onReset: () => void;
 }) {
   return (
-    <div className="space-y-3">
-      {/* Row 1 — discrete filters. The eyebrow anchors the row, the dropdowns
-          flow with consistent height, and Reset sits on the far right after
-          a hairline separator so it never gets confused with a filter chip. */}
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="eyebrow shrink-0 text-[0.7rem]">Refine by</span>
-
+    <div className="space-y-2.5">
+      {/* Row 1 — the four discrete multi-selects, evenly distributed across
+          the full row. CSS Grid (not flex-wrap) so they share width exactly,
+          giving the panel a calm, columnar rhythm even when one chip's
+          label-with-count is shorter than its neighbour. `justify-between`
+          on every trigger pins the count to the right edge of each cell. */}
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <FilterMenu
           label="Location"
           options={LOCATION_OPTIONS.map((l) => ({ id: l.id, label: l.label }))}
           selected={filters.locations}
           onChange={(locations) => onChange({ ...filters, locations })}
+          className="w-full justify-between"
         />
         <FilterMenu
           label="Seniority"
           options={SENIORITY_OPTIONS.map((s) => ({ id: s.id, label: s.label }))}
           selected={filters.seniority}
           onChange={(seniority) => onChange({ ...filters, seniority })}
+          className="w-full justify-between"
         />
         <FilterMenu
           label="Job type"
           options={JOB_TYPE_OPTIONS.map((t) => ({ id: t.id, label: t.label }))}
           selected={filters.jobTypes}
           onChange={(jobTypes) => onChange({ ...filters, jobTypes })}
+          className="w-full justify-between"
         />
         <FilterMenu
           label="Language"
           options={LANGUAGE_OPTIONS.map((l) => ({ id: l.id, label: l.label }))}
           selected={filters.languages}
           onChange={(languages) => onChange({ ...filters, languages })}
+          className="w-full justify-between"
         />
+      </div>
+
+      {/* Row 2 — Date posted (compact, fixed width) + Match slider (flex-1 so
+          it absorbs whatever space is left) + Reset (small icon button at the
+          far right). A single row that fills edge-to-edge.
+          The Date chip is intentionally narrower than the row-1 chips so the
+          slider's track is unambiguously the visual centerpiece of the row. */}
+      <div className="flex flex-wrap items-center gap-3 sm:flex-nowrap">
         <DateFilterMenu
           value={filters.datePosted}
           onChange={(datePosted) => onChange({ ...filters, datePosted })}
+          className="w-full justify-between sm:w-44"
         />
 
-        <div className="ml-auto flex items-center gap-2">
-          <div className="bg-border/70 h-5 w-px shrink-0" aria-hidden />
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onReset}
-            className="text-muted-foreground hover:text-foreground h-7 gap-1.5 px-2 text-xs"
+        <div className="hidden h-5 w-px shrink-0 bg-border/60 sm:block" aria-hidden />
+
+        <div className="flex min-w-0 flex-1 items-center gap-2.5">
+          <span className="eyebrow shrink-0 text-[0.7rem]">Match</span>
+          <span className="text-muted-foreground/70 shrink-0 text-[0.72rem]">
+            Any
+          </span>
+          <Slider
+            className="min-w-24 flex-1"
+            min={0}
+            // Visual track spans 0..100 so the "90→100" tail is always a
+            // visible sliver of the active range — at the previous max=90 the
+            // active fill collapsed to 0px at value=90 and read as "empty".
+            max={100}
+            step={MATCH_SCORE_STEP}
+            value={filters.minScore}
+            onValueChange={(minScore) =>
+              // Functional cap: threshold never exceeds 90, matching the spec
+              // and the API clamp (Math.min(90, …) in /api/jobs).
+              onChange({ ...filters, minScore: Math.min(MATCH_SCORE_MAX, minScore) })
+            }
+            inverted
+            showTooltip
+            tooltipContent={(v) => `${v}%+`}
+            ariaLabel="Minimum match score"
+            ariaValueText={(v) => `${v} percent match or higher`}
+          />
+          <span className="text-muted-foreground/70 shrink-0 text-[0.72rem]">
+            Top
+          </span>
+          <span
+            className={cn(
+              "w-12 shrink-0 text-right text-[0.8rem] font-medium tabular-nums",
+              filters.minScore > 0 ? "text-foreground" : "text-muted-foreground/70",
+            )}
           >
-            <RotateCcw className="size-3.5" />
-            Reset
-          </Button>
+            {filters.minScore > 0 ? `${filters.minScore}%+` : "—"}
+          </span>
         </div>
-      </div>
 
-      {/* Hairline separator visually splits the discrete row above from the
-          continuous (slider) row below. Same tone as the parent ring so it
-          reads as structure, not chrome. */}
-      <div className="bg-border/50 h-px w-full" aria-hidden />
-
-      {/* Row 2 — Match-score threshold slider. Gets the full row width so the
-          90→100 tail (visible sliver after `max={100}`) is easy to land on
-          with a click. Endpoints are labeled ("Any" → "Top picks") so the
-          direction of the threshold is unambiguous. */}
-      <div className="flex flex-wrap items-center gap-3 sm:flex-nowrap">
-        <span className="eyebrow shrink-0 text-[0.7rem]">Match</span>
-        <span className="text-muted-foreground/80 text-[0.72rem] shrink-0 tabular-nums">
-          Any
-        </span>
-        <Slider
-          className="min-w-32 flex-1"
-          min={0}
-          // Visual track spans 0..100 so the "90→100" tail is always a
-          // visible sliver of the active range — at the previous max=90 the
-          // active fill collapsed to 0px at value=90 and read as "empty".
-          max={100}
-          step={MATCH_SCORE_STEP}
-          value={filters.minScore}
-          onValueChange={(minScore) =>
-            // Functional cap: threshold never exceeds 90, matching the spec
-            // and the API clamp (Math.min(90, …) in /api/jobs).
-            onChange({ ...filters, minScore: Math.min(MATCH_SCORE_MAX, minScore) })
-          }
-          inverted
-          showTooltip
-          tooltipContent={(v) => `${v}%+`}
-          ariaLabel="Minimum match score"
-          ariaValueText={(v) => `${v} percent match or higher`}
-        />
-        <span className="text-muted-foreground/80 text-[0.72rem] shrink-0 tabular-nums">
-          Top picks
-        </span>
-        <span
-          className={
-            (filters.minScore > 0 ? "text-foreground" : "text-muted-foreground") +
-            " w-12 shrink-0 text-right text-[0.8rem] font-medium tabular-nums"
-          }
+        <div className="hidden h-5 w-px shrink-0 bg-border/60 sm:block" aria-hidden />
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-label="Reset all filters"
+          title="Reset all filters"
+          onClick={onReset}
+          className="text-muted-foreground hover:text-foreground h-8 shrink-0 gap-1.5 px-2 text-xs"
         >
-          {filters.minScore > 0 ? `${filters.minScore}%+` : "—"}
-        </span>
+          <RotateCcw className="size-3.5" />
+          <span className="hidden sm:inline">Reset</span>
+        </Button>
       </div>
     </div>
   );
