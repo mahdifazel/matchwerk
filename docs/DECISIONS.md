@@ -396,3 +396,39 @@ The same logic applies to `jobType`. For `source`, no UNKNOWN passes because eve
 **Why nullable rather than a data migration that invents an owner.** When multi-tenancy landed there were already real rows (the owner's CV, settings, jobs) with no user to attribute them to. Making `userId` nullable let the migration run without fabricating a `User`; the first human to actually sign in inherits them. After that, the column is effectively non-null for all new rows.
 
 **Why guard on `userCount === 1`.** The claim must only ever fire for the *very first* account — otherwise the second person to register would sweep up the first person's data. Counting users and bailing when it's not exactly 1 makes the claim a strict one-shot. On a fresh database with no orphan rows it's a harmless no-op.
+
+---
+
+## 38. Empty `Job.requiredLanguages` means English suffices
+
+**Decision.** The scorer emits `requiredLanguages: string[]` ⊆ `["de", "en"]` per job, populating only the languages the JD *explicitly* requires (German triggers like "Deutschkenntnisse erforderlich", "fließend Deutsch", "C1/C2 Deutsch"; English triggers like "English required"). When neither is stated, the array stays empty. The board's "English" Language filter then accepts any job *without* `"de"` — empty arrays included — so jobs that simply don't mention a language requirement count as English-OK.
+
+**Why.** In the Berlin/EU tech market, English is the implicit default; most postings that work for English speakers never mention it explicitly. Treating "unstated" as "English-required" matches the on-the-ground convention and prevents the filter from silently hiding legitimate matches behind silence. The alternative — defaulting to "requires both" or "unknown, exclude" — would zero out the English bucket for most aggregator listings.
+
+**Trade-off.** A small number of German-only postings that *fail* to declare the requirement leak into the English bucket. The system-prompt's "penalize unmet languages" instruction softens this on the *score* side — even when a leaky JD slips through the filter, it gets a lower score and sinks down the inbox.
+
+**Where it lives.** Filter math in `src/app/api/jobs/route.ts` (search for `languages.includes("de")`); scorer instructions in `src/lib/matcher.ts` (system-prompt language paragraph) + `src/lib/ai/{claude,gemini}.ts` (`requiredLanguages` field description).
+
+---
+
+## 39. 300-char description snippet at scoring time
+
+**Decision.** `JobToScore.description?: string` carries the first 300 characters of each JD into the scoring batch's user prompt. Previously the model only saw title + company + location.
+
+**Why.** Language requirements ("Deutschkenntnisse erforderlich"), specific tools, and seniority hints all live in the description, not the title. Without the snippet, the new `requiredLanguages` output (DECISIONS #38) would be a guess — and `missingSkills`/score quality would stay capped at "what can be inferred from the title alone".
+
+**Cost.** Adds roughly 50 tokens per job to the input side of scoring — a ~2–3× bump on a previously tiny prompt (was ~30 tokens/job; now ~80). Negligible against `PER_JOB_RATING = 1` token charged to the user, and the system prompt is still cached on the Claude path so the CV doesn't re-bill across batches.
+
+**Why 300 chars, not the full description.** "Deutschkenntnisse"-style flags and the first sentence of the role pitch almost always land in the JD's opening — 300 chars is enough signal without billing for the full text. Tunable: bump the slice in `src/lib/matcher.ts` if the cost/accuracy trade-off shifts.
+
+---
+
+## 40. `<NumberInput>` wraps the controlled-number pattern
+
+**Decision.** Every admin/Settings numeric input goes through `src/components/ui/number-input.tsx`, not a raw `<Input type="number" value={number} onChange={(e) => set(Number(e.target.value))}>`. The wrapper keeps an internal string buffer, commits a parsed number to `onValueChange` while typing, and on blur snaps blank → `fallback` then clamps to `[min, max]`.
+
+**Why.** The "obvious" controlled-number pattern is a usability trap: `Number("")` coerces to `0`, so when the user backspaces past every digit the field snaps back to "0" and they can't delete that leading zero to type a new number from scratch. The string buffer lets the input legitimately hold `""` mid-edit; parent state only sees a real number.
+
+**Why a wrapper, not inline state at each site.** Plans, rate limits, budget alerts, and SMTP port all needed the same fix — duplicating the buffer + clamp + blur logic at each site would have made each form harder to read. One wrapper, used at every site (`plans-manager.tsx`, `rate-limit-settings.tsx`, `budget-settings.tsx`, `email-settings.tsx`).
+
+**Pattern note.** Uses the render-time `setState` idiom (`if (value !== lastValue) { setLastValue(value); ... }`) to re-seed the buffer when the parent value changes out from under it, not `useEffect` — that's the React 19 recommended pattern for syncing state to changing props.

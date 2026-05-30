@@ -196,7 +196,7 @@ The `Profile` row is replaced wholesale on each upload — there's no history. T
 
 The `save_cv_profile` tool also returns exactly **3 `suggestedJobTitles`**. After upserting the profile, `POST /api/cv` overwrites `Settings.jobTitles` with those three and hard-deletes every `status = NEW` job — so old matches from the previous CV don't pollute the board when you upload a CV for a different role. `STARRED` and `APPLIED` are preserved.
 
-Profile fields can also be edited in place without re-uploading via `PATCH /api/cv` — Zod-validated `{ summary?, skills?, tools?, industries?, keywords? }`, capped at 4000 chars / 200 list items.
+Profile fields can also be edited in place without re-uploading via `PATCH /api/cv` — Zod-validated `{ summary?, skills?, tools?, industries?, languages?, keywords? }`, capped at 4000 chars / 200 list items. The Languages chip section sits between Industries and Keywords in `cv-upload.tsx`.
 
 ### 3.2 Refresh — the main pipeline
 
@@ -231,7 +231,16 @@ scoreJobs(profile, titles, prefs, fresh)  ── batches of 10 → Claude Haiku 
    │                                          system prompt: role-agnostic +
    │                                          USER PREFERENCES (seniority,
    │                                          jobTypes, locations from Settings)
+   │                                          + CANDIDATE LANGUAGES (penalize
+   │                                          unmet requirements; "no mention
+   │                                          = English suffices" — DECISIONS #38)
+   │                                          user prompt carries a 300-char
+   │                                          description snippet per job so
+   │                                          language signals are visible
    │                                          CV cached as ephemeral block
+   │                                          → { score, explanation,
+   │                                              missingSkills[],
+   │                                              requiredLanguages[] (⊆ de|en) }
    ▼
 prisma.job.createMany({ skipDuplicates: true })
    │
@@ -278,6 +287,10 @@ Query string:
   jobTypes       CSV of JobType                  → only narrows if subset, UNKNOWN passes
   locations      CSV of location IDs             → matched via LOCATION_MATCHES table
                                                    (Berlin → "Berlin", Munich → "München"|"Munich"|"Muenchen", etc.)
+  languages      CSV of de|en                    → both/none → no filter;
+                                                   "de" only → requiredLanguages has "de";
+                                                   "en" only → NOT (requiredLanguages has "de")
+                                                   (empty array = English-suffices per DECISIONS #38)
   datePosted     any|24h|1w|2w|1m                → publishedAt >= cutoff
                                                    OR (publishedAt IS NULL AND fetchedAt >= cutoff)
   minScore       0..90 (steps of 10)             → matchScore >= minScore when > 0 (filters directly, not "narrow if subset")
@@ -300,7 +313,7 @@ The "only narrows if subset" rule is critical for fresh jobs whose seniority/typ
 | `PATCH` | `/api/jobs/:id` | `{ action: "delete" }` | `status = DELETED` (row kept for dedupe) |
 | `POST` | `/api/jobs/bulk` | `{ action: "delete", ids: string[] }` | sets each row to `DELETED` |
 | `POST` | `/api/jobs/bulk` | `{ action: "unapply", ids: string[] }` | unapplies (guarded by `status: "APPLIED"`) |
-| `PATCH` | `/api/cv` | `{ summary?, skills?, tools?, industries?, keywords? }` | partial profile edit (Zod-validated) |
+| `PATCH` | `/api/cv` | `{ summary?, skills?, tools?, industries?, languages?, keywords? }` | partial profile edit (Zod-validated) |
 | `PUT` | `/api/settings` | full `SettingsDTO` payload | validated, source-id enum derived from `ALL_SOURCE_IDS` |
 | `GET / PUT / DELETE` | `/api/sources/[id]/credentials` | per-source secrets | DB-backed credentials, masked status responses |
 | `POST` | `/api/register` | `{ email, password, name? }` | Creates a user (bcrypt hash), claims orphans, applies signup grant |
@@ -372,8 +385,9 @@ fileName                          jobTitles[]
 rawCvText                         defaultLocations[]
 summary                           defaultSeniority[]
 skills[], tools[],                defaultJobTypes[]
-industries[], keywords[]          defaultSources[]
-seniority (enum), yearsExperience updatedAt
+industries[], languages[],        defaultSources[]
+keywords[]                        updatedAt
+seniority (enum), yearsExperience
 parsedAt, updatedAt
 
 SourceCredential                  Job
@@ -384,7 +398,7 @@ sourceId     (JobSourceId)        source       (JobSourceId enum)
 secrets      (Json)               externalId, dedupeHash
 updatedAt                         title, company, location, url, publisher?, description
 @@unique([userId, sourceId])      jobType (enum), seniority (enum), publishedAt?
-                                  matchScore?, matchExplanation?, missingSkills[], scoredAt?
+                                  matchScore?, matchExplanation?, missingSkills[], requiredLanguages[], scoredAt?
                                   status (NEW|STARRED|APPLIED|DELETED), appliedAt?
                                   fetchedAt, updatedAt
                                   @@unique([userId, dedupeHash])

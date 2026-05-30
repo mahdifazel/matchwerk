@@ -60,12 +60,34 @@ Multi-tenancy with Auth.js, an in-app token economy, **Stripe payments**, a
 
 ### Added — Token billing
 
-- In-app token economy in `src/lib/tokens.ts`. Prices: **signup grant 150**, **CV parse 25**, **0.5 per job displayed**, **1 per job freshly rated**. Limits: `MAX_SEARCH_JOBS 150` (considered per refresh), `MAX_BOARD_JOBS 70` (Inbox listing). Balances use 0.5 increments (`Float`).
+- In-app token economy in `src/lib/tokens.ts`. Prices: **signup grant 300** (bumped from 150 so a new account covers a CV parse + ~2 Researches out of the gate), **CV parse 25**, **0.5 per job displayed**, **1 per job freshly rated**. Limits: `MAX_SEARCH_JOBS 150` (considered per refresh), `MAX_BOARD_JOBS 70` (Inbox listing). Balances use 0.5 increments (`Float`).
 - New `User` columns `tokenBalance`, `tokenDebt`, `tokensGrantedAt`, and an append-only `TokenLedger` model (`delta`, `balanceAfter`, `reason`, `metadata?`, indexed `[userId, createdAt]`). Migration `20260524180753_add_token_billing`.
-- `getTokenAccount(userId)` applies the one-time 150 grant lazily (atomic `updateMany` claim — never double-grants); fired on first Google sign-in (`createUser` event) and on email/password registration.
+- `getTokenAccount(userId)` applies the one-time 300 grant lazily (atomic `updateMany` claim — never double-grants); fired on first Google sign-in (`createUser` event) and on email/password registration.
 - `charge()` never blocks the run: balance floors at 0 and overspend is recorded as `tokenDebt`, so the UI never shows a negative. One ledger row per charge. `grant()` pays down debt first.
 - Charging wired into `POST /api/cv` (25 per upload; inline `PATCH` edits are free) and `POST /api/jobs/refresh` (billed after the run succeeds; repeats-only runs bill re-display but never re-rate).
 - Balance surfaced via `GET /api/tokens` and `GET /api/account`; a header pill (`useTokenBalance`) refetches on a `tokens-updated` window event (`notifyTokensUpdated()` fired from the board and CV upload).
+
+### Added — Jooble source
+
+- New backup-tier adapter `src/lib/sources/jooble.ts`. POSTs `{ keywords, location, page, ResultOnPage, SearchMode }` against `https://jooble.org/api/{apiKey}`; HTML-stripped 4000-char snippets; infers seniority + job type. Caps at 4 titles × locations × 2 pages per run.
+- New `JOOBLE` value on the `JobSourceId` enum (migration `20260529120000_add_jooble_source`). `SOURCE_CREDENTIAL_SCHEMA.JOOBLE = { apiKey → JOOBLE_API_KEY }`, `SOURCE_META` + `ALL_SOURCES` entries, and `JOOBLE_API_KEY` in `.env.example`. Editable in **Admin → System Settings → Job sources**.
+- Tier: **backup** — runs alongside Adzuna when the primary tier returns fewer than 10 results.
+
+### Added — Language hybrid (parse + score + filter)
+
+- **Profile.languages** — free-text spoken languages parsed out of the CV (e.g. `"German (native)"`, `"English (fluent)"`); editable as a chip section between Industries and Keywords in Settings; carried in the scorer's system prompt so the model can penalize unmet language requirements. Schema + `parseCvProfile` (Claude `CV_TOOL` + Gemini `CV_SCHEMA`) + `cv-upload.tsx` UI + `PATCH /api/cv` Zod schema all updated.
+- **Job.requiredLanguages** — normalised `string[]` ⊆ `["de", "en"]` emitted by the scorer per job. The user prompt now carries a **300-char description snippet** so the model can detect "Deutschkenntnisse erforderlich"-style flags that don't live in the title.
+- **Board "Language" filter** — German / English multi-select in `filter-bar.tsx`. Maps against `Job.requiredLanguages` with the product rule (DECISIONS #38): both checked or neither = no filter; "de" only = job requires German; "en" only = job does NOT require German (so jobs with empty `requiredLanguages` qualify as English-suffices, matching the German tech-market default).
+- Migration `20260529130000_add_language_filter` — both columns default to `'{}'`; existing rows behave as English-OK until they're re-scored.
+
+### Changed / Fixed — UI
+
+- **`<NumberInput>` wrapper** (`src/components/ui/number-input.tsx`) — fixes admin number fields where you couldn't backspace past the leading "0" (the `Number("") → 0` trap). String-buffered internally, commits parsed numbers to `onValueChange` while typing, snaps blank → `fallback` and clamps to `[min, max]` on blur. Used by `plans-manager.tsx`, `rate-limit-settings.tsx`, `budget-settings.tsx`, `email-settings.tsx`.
+- **Filter bar redesigned** into two rows — row 1 a four-column CSS grid (Location, Seniority, Job type, Language); row 2 packs Date posted, the Match slider with "Any" / "Top" endpoint labels, and Reset on the far right. Active filters now flip their indicator to `text-foreground font-medium` so narrowed filters are visible at a glance.
+- **Inbox Clear List → soft-clear** — rows stay in the DB; the click hides them from the current view via a session-local ref and they come back on the next Research. Click is now gated by an `AlertDialog` confirmation.
+- **Refresh snackbar** stripped of the per-source breakdown (`JSearch: 0 · BA Jobbörse: 23 · …`); only the top-line summary ("Added N new jobs · spent X tokens") remains.
+- **Hero & metadata generic when no job title is set** — board hero falls back to "Roles matched to you, ranked by fit." and the social-preview title/description ditch the "Product Design jobs" framing for profession-agnostic copy.
+- **Match slider visual fix** — track now spans 0..100 (the 90→100 tail is always a visible active sliver); the threshold is still clamped to ≤90 in `onValueChange`. Previously the active fill collapsed to 0 px at value=90.
 
 ## [1.1.0] — 2026-05-16
 
