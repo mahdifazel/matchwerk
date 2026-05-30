@@ -30,6 +30,7 @@ const CV_SCHEMA = {
     skills: { type: Type.ARRAY, items: { type: Type.STRING } },
     tools: { type: Type.ARRAY, items: { type: Type.STRING } },
     industries: { type: Type.ARRAY, items: { type: Type.STRING } },
+    languages: { type: Type.ARRAY, items: { type: Type.STRING } },
     keywords: { type: Type.ARRAY, items: { type: Type.STRING } },
     seniority: {
       type: Type.STRING,
@@ -40,7 +41,7 @@ const CV_SCHEMA = {
     suggestedJobTitles: { type: Type.ARRAY, items: { type: Type.STRING } },
   },
   required: [
-    "summary", "skills", "tools", "industries", "keywords",
+    "summary", "skills", "tools", "industries", "languages", "keywords",
     "seniority", "yearsExperience", "suggestedJobTitles",
   ],
 };
@@ -57,8 +58,12 @@ const SCORES_SCHEMA = {
           score: { type: Type.INTEGER },
           explanation: { type: Type.STRING },
           missingSkills: { type: Type.ARRAY, items: { type: Type.STRING } },
+          requiredLanguages: {
+            type: Type.ARRAY,
+            items: { type: Type.STRING, enum: ["de", "en"], format: "enum" },
+          },
         },
-        required: ["id", "score", "explanation", "missingSkills"],
+        required: ["id", "score", "explanation", "missingSkills", "requiredLanguages"],
       },
     },
   },

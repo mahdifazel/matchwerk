@@ -27,7 +27,7 @@ const SENIORITY_LABEL: Record<string, string> = {
   UNKNOWN: "Unknown",
 };
 
-type ListKey = "skills" | "tools" | "industries" | "keywords";
+type ListKey = "skills" | "tools" | "industries" | "languages" | "keywords";
 
 function EditableChipList({
   label,
@@ -120,6 +120,7 @@ type Draft = {
   skills: string[];
   tools: string[];
   industries: string[];
+  languages: string[];
   keywords: string[];
 };
 
@@ -129,13 +130,14 @@ function profileToDraft(p: ProfileDTO): Draft {
     skills: [...p.skills],
     tools: [...p.tools],
     industries: [...p.industries],
+    languages: [...(p.languages ?? [])],
     keywords: [...p.keywords],
   };
 }
 
 function draftsEqual(a: Draft, b: Draft): boolean {
   if (a.summary !== b.summary) return false;
-  const keys: ListKey[] = ["skills", "tools", "industries", "keywords"];
+  const keys: ListKey[] = ["skills", "tools", "industries", "languages", "keywords"];
   for (const k of keys) {
     if (a[k].length !== b[k].length) return false;
     for (let i = 0; i < a[k].length; i++) {
@@ -374,6 +376,17 @@ export function CvUpload() {
                   patchList(
                     "industries",
                     draft.industries.filter((i) => i !== v),
+                  )
+                }
+              />
+              <EditableChipList
+                label="Languages"
+                items={draft.languages}
+                onAdd={(v) => patchList("languages", [...draft.languages, v])}
+                onRemove={(v) =>
+                  patchList(
+                    "languages",
+                    draft.languages.filter((i) => i !== v),
                   )
                 }
               />

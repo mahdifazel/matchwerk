@@ -166,6 +166,7 @@ async function runRefresh() {
       title: j.title,
       company: j.company,
       location: j.location,
+      description: j.description,
     })),
   );
 
@@ -190,6 +191,7 @@ async function runRefresh() {
       matchScore: score?.score ?? null,
       matchExplanation: score?.explanation ?? null,
       missingSkills: score?.missingSkills ?? [],
+      requiredLanguages: score?.requiredLanguages ?? [],
       scoredAt: score ? now : null,
       status: "NEW",
     };

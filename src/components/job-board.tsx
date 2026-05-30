@@ -31,6 +31,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   ALL_JOB_TYPES,
+  ALL_LANGUAGE_IDS,
   ALL_LOCATION_IDS,
   ALL_SENIORITY,
   ALL_SOURCE_IDS,
@@ -49,6 +50,7 @@ const ALL_FILTERS: Filters = {
   seniority: [...ALL_SENIORITY],
   jobTypes: [...ALL_JOB_TYPES],
   sources: [...ALL_SOURCE_IDS],
+  languages: [...ALL_LANGUAGE_IDS],
   datePosted: "any",
   minScore: 0,
 };
@@ -89,6 +91,7 @@ export function JobBoard() {
       seniority: filters.seniority.join(","),
       jobTypes: filters.jobTypes.join(","),
       sources: filters.sources.join(","),
+      languages: filters.languages.join(","),
       datePosted: filters.datePosted,
       minScore: String(filters.minScore),
     });

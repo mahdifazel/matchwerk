@@ -23,6 +23,7 @@ const patchSchema = z
     skills: stringList.optional(),
     tools: stringList.optional(),
     industries: stringList.optional(),
+    languages: stringList.optional(),
     keywords: stringList.optional(),
   })
   .refine((v) => Object.keys(v).length > 0, "No fields to update.");

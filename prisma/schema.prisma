@@ -263,6 +263,7 @@ model Profile {
   skills          String[]
   tools           String[]
   industries      String[]
+  languages       String[]  @default([])
   keywords        String[]
   seniority       Seniority @default(UNKNOWN)
   yearsExperience Int       @default(0)
@@ -319,10 +320,14 @@ model Job {
   seniority   Seniority   @default(UNKNOWN)
   publishedAt DateTime?
 
-  matchScore       Int?
-  matchExplanation String?
-  missingSkills    String[]
-  scoredAt         DateTime?
+  matchScore        Int?
+  matchExplanation  String?
+  missingSkills     String[]
+  /// Languages the job *requires* of the candidate, normalised to "de" / "en".
+  /// Empty = no language requirement stated; per the product rule, that means
+  /// English is sufficient (the German market's default for English speakers).
+  requiredLanguages String[]  @default([])
+  scoredAt          DateTime?
 
   status    JobStatus @default(NEW)
   appliedAt DateTime?

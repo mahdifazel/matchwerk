@@ -107,6 +107,21 @@ export const ALL_SENIORITY: Seniority[] = SENIORITY_OPTIONS.map((s) => s.id);
 export const ALL_JOB_TYPES: JobType[] = JOB_TYPE_OPTIONS.map((t) => t.id);
 export const ALL_LOCATION_IDS: string[] = LOCATION_OPTIONS.map((l) => l.id);
 
+/**
+ * Language filter — German and English only. Mapped against
+ * `Job.requiredLanguages` (normalised "de"/"en" emitted by the scorer).
+ * Per the product rule, an *empty* `requiredLanguages` means English is
+ * sufficient (no German requirement = the post is open to English speakers).
+ */
+export type LanguageOption = { id: "de" | "en"; label: string };
+export const LANGUAGE_OPTIONS: LanguageOption[] = [
+  { id: "de", label: "German" },
+  { id: "en", label: "English" },
+];
+export const ALL_LANGUAGE_IDS: LanguageOption["id"][] = LANGUAGE_OPTIONS.map(
+  (l) => l.id,
+);
+
 export const TAB_STATUSES: Record<string, JobStatus> = {
   inbox: "NEW",
   starred: "STARRED",

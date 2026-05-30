@@ -8,6 +8,7 @@ import type {
 } from "@/generated/prisma/enums";
 import {
   ALL_JOB_TYPES,
+  ALL_LANGUAGE_IDS,
   ALL_SENIORITY,
   ALL_SOURCE_IDS,
   DATE_POSTED_OPTIONS,
@@ -48,6 +49,7 @@ export async function GET(request: Request) {
   const seniority = csv(searchParams.get("seniority")) as Seniority[];
   const jobTypes = csv(searchParams.get("jobTypes")) as JobType[];
   const locations = csv(searchParams.get("locations"));
+  const languages = csv(searchParams.get("languages")) as ("de" | "en")[];
 
   const where: Prisma.JobWhereInput = { userId, status };
 
@@ -63,6 +65,25 @@ export async function GET(request: Request) {
   }
   if (jobTypes.length > 0 && jobTypes.length < ALL_JOB_TYPES.length) {
     where.jobType = { in: [...jobTypes, "UNKNOWN"] };
+  }
+
+  // Language filter: maps the user's selected German/English chips onto
+  // `Job.requiredLanguages`, which the scorer emits per the product rule
+  // (empty array = English suffices, because no German requirement was found).
+  //   - German only  →  jobs whose requiredLanguages includes "de"
+  //   - English only →  jobs whose requiredLanguages does NOT include "de"
+  //   - Both         →  no filter (defensive rule, same as everything else)
+  if (languages.length > 0 && languages.length < ALL_LANGUAGE_IDS.length) {
+    if (languages.includes("de")) {
+      where.requiredLanguages = { has: "de" };
+    } else if (languages.includes("en")) {
+      where.NOT = {
+        ...(typeof where.NOT === "object" && where.NOT !== null && !Array.isArray(where.NOT)
+          ? where.NOT
+          : {}),
+        requiredLanguages: { has: "de" },
+      };
+    }
   }
 
   // Minimum match-score threshold (0–90, steps of 10). When > 0, show only

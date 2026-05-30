@@ -7,6 +7,8 @@ export type ParsedCvProfile = {
   skills: string[];
   tools: string[];
   industries: string[];
+  /** Languages the candidate speaks, free text (e.g. "German (native)"). */
+  languages: string[];
   keywords: string[];
   seniority: Seniority;
   yearsExperience: number;
@@ -19,6 +21,8 @@ export type RawJobScore = {
   score: number;
   explanation: string;
   missingSkills: string[];
+  /** Languages the job explicitly requires: subset of ["de", "en"]. */
+  requiredLanguages: string[];
 };
 
 /**
@@ -53,6 +57,7 @@ export function normalizeCvProfile(input: Partial<ParsedCvProfile>): ParsedCvPro
     skills: list(input.skills),
     tools: list(input.tools),
     industries: list(input.industries),
+    languages: list(input.languages),
     keywords: list(input.keywords),
     seniority,
     yearsExperience:

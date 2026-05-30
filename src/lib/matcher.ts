@@ -7,6 +7,9 @@ export type JobToScore = {
   title: string;
   company: string;
   location: string;
+  /** First ~300 chars of the JD — gives the scorer enough text to detect
+   *  language requirements without paying for the full description. */
+  description?: string;
 };
 
 export type ScoringPreferences = {
@@ -22,6 +25,8 @@ export type JobScore = {
   score: number;
   explanation: string;
   missingSkills: string[];
+  /** Languages the job requires (subset of ["de", "en"]); empty = English suffices. */
+  requiredLanguages: string[];
 };
 
 const BATCH_SIZE = 10;
@@ -53,7 +58,11 @@ function buildSystemPrompt(
     `Skills: ${profile.skills.join(", ")}`,
     `Tools: ${profile.tools.join(", ")}`,
     `Industries: ${profile.industries.join(", ")}`,
+    `Languages: ${profile.languages.length > 0 ? profile.languages.join(", ") : "Not specified"}`,
     `Keywords: ${profile.keywords.join(", ")}`,
+    "",
+    "When a job explicitly requires a language the candidate does not appear to speak fluently, strongly penalize the score. If the JD makes no language requirement, assume English is sufficient — do not penalize.",
+    "Also emit `requiredLanguages` per job: include 'de' only when the JD explicitly requires German; include 'en' only when English is explicitly required. If neither is stated, leave the array empty.",
   ];
   if (
     prefs.preferredSeniority.length > 0 ||
@@ -85,10 +94,20 @@ async function scoreBatch(
 ): Promise<Map<string, JobScore>> {
   const systemPrompt = buildSystemPrompt(profile, jobTitles, prefs);
   const userPrompt = `Score these jobs:\n\n${batch
-    .map(
-      (j) =>
-        `id: ${j.id}\ntitle: ${j.title}\ncompany: ${j.company}\nlocation: ${j.location}`,
-    )
+    .map((j) => {
+      const lines = [
+        `id: ${j.id}`,
+        `title: ${j.title}`,
+        `company: ${j.company}`,
+        `location: ${j.location}`,
+      ];
+      if (j.description) {
+        // 300 chars is plenty to surface "Deutschkenntnisse erforderlich"-style
+        // signals without paying for the full JD.
+        lines.push(`description: ${j.description.slice(0, 300)}`);
+      }
+      return lines.join("\n");
+    })
     .join("\n\n")}`;
 
   const raw = await runWithAi(
@@ -99,10 +118,14 @@ async function scoreBatch(
   const result = new Map<string, JobScore>();
   for (const s of raw) {
     if (!s || typeof s.id !== "string") continue;
+    const langs = Array.isArray(s.requiredLanguages)
+      ? s.requiredLanguages.filter((l): l is string => l === "de" || l === "en")
+      : [];
     result.set(s.id, {
       score: Math.max(0, Math.min(100, Math.round(s.score))),
       explanation: typeof s.explanation === "string" ? s.explanation : "",
       missingSkills: Array.isArray(s.missingSkills) ? s.missingSkills : [],
+      requiredLanguages: [...new Set(langs)],
     });
   }
   return result;

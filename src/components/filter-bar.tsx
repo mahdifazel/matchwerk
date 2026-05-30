@@ -18,6 +18,7 @@ import {
   DATE_POSTED_OPTIONS,
   type DatePostedId,
   JOB_TYPE_OPTIONS,
+  LANGUAGE_OPTIONS,
   LOCATION_OPTIONS,
   SENIORITY_OPTIONS,
 } from "@/lib/constants";
@@ -32,6 +33,8 @@ export type Filters = {
   seniority: string[];
   jobTypes: string[];
   sources: string[];
+  /** Language IDs selected ("de" / "en"). Mapped against Job.requiredLanguages. */
+  languages: string[];
   datePosted: DatePostedId;
   minScore: number;
 };
@@ -168,6 +171,12 @@ export function FilterBar({
         options={JOB_TYPE_OPTIONS.map((t) => ({ id: t.id, label: t.label }))}
         selected={filters.jobTypes}
         onChange={(jobTypes) => onChange({ ...filters, jobTypes })}
+      />
+      <FilterMenu
+        label="Language"
+        options={LANGUAGE_OPTIONS.map((l) => ({ id: l.id, label: l.label }))}
+        selected={filters.languages}
+        onChange={(languages) => onChange({ ...filters, languages })}
       />
       <DateFilterMenu
         value={filters.datePosted}

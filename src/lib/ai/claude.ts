@@ -35,6 +35,12 @@ const CV_TOOL = {
       skills: { type: "array", items: { type: "string" }, description: "Design and professional skills." },
       tools: { type: "array", items: { type: "string" }, description: "Software/tools the candidate knows." },
       industries: { type: "array", items: { type: "string" }, description: "Industries/domains worked in." },
+      languages: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          "Languages the candidate speaks, copied as written in the CV (e.g. \"German (native)\", \"English (fluent)\", \"Spanish (basic)\"). Empty if the CV does not list any.",
+      },
       keywords: { type: "array", items: { type: "string" }, description: "Additional searchable keywords." },
       seniority: {
         type: "string",
@@ -52,7 +58,7 @@ const CV_TOOL = {
       },
     },
     required: [
-      "summary", "skills", "tools", "industries", "keywords",
+      "summary", "skills", "tools", "industries", "languages", "keywords",
       "seniority", "yearsExperience", "suggestedJobTitles",
     ],
   },
@@ -77,8 +83,14 @@ const SCORE_TOOL = {
               items: { type: "string" },
               description: "Skills the role needs that the CV doesn't show. Empty if none.",
             },
+            requiredLanguages: {
+              type: "array",
+              items: { type: "string", enum: ["de", "en"] },
+              description:
+                "Languages the job explicitly REQUIRES of the candidate. Use 'de' only when German is required (phrases like 'Deutschkenntnisse erforderlich', 'fließend Deutsch', 'verhandlungssicheres Deutsch', 'muttersprachlich Deutsch', 'C1/C2 Deutsch', 'German fluency', 'German-speaking required'). Use 'en' only when English is explicitly required. Return [] when no language requirement is stated — per the product rule, an empty array means English is sufficient.",
+            },
           },
-          required: ["id", "score", "explanation", "missingSkills"],
+          required: ["id", "score", "explanation", "missingSkills", "requiredLanguages"],
         },
       },
     },

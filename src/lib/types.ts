@@ -22,6 +22,8 @@ export type JobDTO = {
   matchScore: number | null;
   matchExplanation: string | null;
   missingSkills: string[];
+  /** Normalised language codes (e.g. ["de"]) the job explicitly requires. */
+  requiredLanguages: string[];
   scoredAt: string | null;
   status: JobStatus;
   appliedAt: string | null;
@@ -35,6 +37,8 @@ export type ProfileDTO = {
   skills: string[];
   tools: string[];
   industries: string[];
+  /** Languages the candidate speaks (free text, e.g. "German (native)"). */
+  languages: string[];
   keywords: string[];
   seniority: Seniority;
   yearsExperience: number;
