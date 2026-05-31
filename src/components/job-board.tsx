@@ -83,39 +83,50 @@ export function JobBoard() {
   const clearedIdsRef = useRef<Set<string>>(new Set());
   const { balance } = useTokenBalance();
 
-  const fetchJobs = useCallback(async () => {
-    setLoading(true);
-    const params = new URLSearchParams({
-      tab,
-      locations: filters.locations.join(","),
-      seniority: filters.seniority.join(","),
-      jobTypes: filters.jobTypes.join(","),
-      sources: filters.sources.join(","),
-      languages: filters.languages.join(","),
-      datePosted: filters.datePosted,
-      minScore: String(filters.minScore),
-    });
-    try {
-      const res = await fetch(`/api/jobs?${params.toString()}`);
-      const data = await res.json();
-      const incoming: JobDTO[] = data.jobs ?? [];
-      // Suppress jobs the user soft-cleared from the Inbox earlier in this
-      // session; Research clears the ref so they come back.
-      setJobs(
-        clearedIdsRef.current.size === 0
-          ? incoming
-          : incoming.filter((j) => !clearedIdsRef.current.has(j.id)),
-      );
-    } catch {
-      toast.error("Could not load jobs.");
-    } finally {
-      setLoading(false);
-    }
-  }, [tab, filters]);
+  const fetchJobs = useCallback(
+    async (signal?: AbortSignal) => {
+      setLoading(true);
+      const params = new URLSearchParams({
+        tab,
+        locations: filters.locations.join(","),
+        seniority: filters.seniority.join(","),
+        jobTypes: filters.jobTypes.join(","),
+        sources: filters.sources.join(","),
+        languages: filters.languages.join(","),
+        datePosted: filters.datePosted,
+        minScore: String(filters.minScore),
+      });
+      try {
+        const res = await fetch(`/api/jobs?${params.toString()}`, { signal });
+        if (signal?.aborted) return;
+        const data = await res.json();
+        const incoming: JobDTO[] = data.jobs ?? [];
+        // Suppress jobs the user soft-cleared from the Inbox earlier in this
+        // session; Research clears the ref so they come back.
+        setJobs(
+          clearedIdsRef.current.size === 0
+            ? incoming
+            : incoming.filter((j) => !clearedIdsRef.current.has(j.id)),
+        );
+      } catch (err) {
+        // AbortError is expected — a newer filter change superseded this fetch.
+        if ((err as Error)?.name === "AbortError") return;
+        toast.error("Could not load jobs.");
+      } finally {
+        if (!signal?.aborted) setLoading(false);
+      }
+    },
+    [tab, filters],
+  );
 
+  // Cancel any in-flight fetch when filters/tab change so an older, slower
+  // response can't overwrite a newer one (fixes "match filter sometimes
+  // doesn't work" — same race applied to all filter dropdowns).
   useEffect(() => {
+    const controller = new AbortController();
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    fetchJobs();
+    fetchJobs(controller.signal);
+    return () => controller.abort();
   }, [fetchJobs]);
 
   useEffect(() => {
