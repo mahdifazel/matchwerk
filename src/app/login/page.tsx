@@ -104,11 +104,7 @@ function LoginForm() {
 
 export default function LoginPage() {
   return (
-    <AuthShell
-      title="Welcome back"
-      subtitle="Sign in to your job board"
-      illustrationSrc="/auth-illustration.svg"
-    >
+    <AuthShell title="Welcome back" subtitle="Sign in to your job board">
       <Suspense fallback={null}>
         <LoginForm />
       </Suspense>
