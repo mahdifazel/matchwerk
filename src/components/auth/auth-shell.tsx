@@ -56,7 +56,7 @@ export function AuthShell({
                 inner div carries the mount animation. Splitting them
                 prevents the static translateX from clobbering the keyframe
                 transform on the same element. */}
-            <div className="lg:-translate-x-[4px]">
+            <div className="lg:translate-x-0">
               <div
                 className="auth-illustration-mount block w-full select-none"
                 style={{ maxWidth: "min(100%, 520px)" }}
