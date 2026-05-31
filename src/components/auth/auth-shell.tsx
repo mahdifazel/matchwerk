@@ -71,24 +71,12 @@ export function AuthShell({
             </div>
             {illustrationTagline && (
               <div className="auth-illustration-mount auth-illustration-caption max-w-lg text-center">
-                {/* Matches the wordmark style in the app header
-                    (Fraunces / leading-none / tracking-tight), but a touch
-                    bolder (font-weight 700 vs the header's 550) since this
-                    is the brand anchor on the auth surface. */}
+                {/* The "Matchwerk" wordmark lives in the form column's
+                    lockup. Here in the illustration column we keep just
+                    the editorial caption — italic, Ink at 60%, generous
+                    leading, ~60-65 chars per line on lg+. */}
                 <p
-                  className="font-display text-[1.35rem] leading-none tracking-tight"
-                  style={{ color: "#1A1233", fontWeight: 700 }}
-                >
-                  Matchwerk
-                </p>
-                {/* Longer multi-sentence caption: text-base + relaxed leading
-                    keeps it readable across ~3 lines (italic display on bigger
-                    sizes would read as a heavy block). Ink at 60% so it stays
-                    subordinate to the wordmark while passing WCAG AA on Paper
-                    (≈5.5:1). max-w-lg on the parent gives ~60-65 chars per
-                    line — the editorial sweet spot. */}
-                <p
-                  className="font-display mt-3 text-base leading-relaxed italic"
+                  className="font-display text-base leading-relaxed italic"
                   style={{ color: "rgba(26, 18, 51, 0.60)" }}
                 >
                   {illustrationTagline}
@@ -111,7 +99,20 @@ export function AuthShell({
       >
         <div className="w-full max-w-sm lg:-translate-y-[49.5px]">
           <div className="mb-8 flex flex-col items-center text-center">
-            <Logomark />
+            {/* Brand lockup — logomark + wordmark — matching the app header
+                shape. On lg+ the section bg is Sage, so the wordmark color
+                pins to Ink for AA contrast in both themes. */}
+            <div className="flex items-center gap-2.5">
+              <Logomark />
+              <span
+                className={cn(
+                  "font-display text-[1.35rem] leading-none tracking-tight",
+                  hasIllustration && "lg:text-[#1A1233]",
+                )}
+              >
+                Matchwerk
+              </span>
+            </div>
             {/* Header texts on the Sage stage pin to Ink-derived tones so
                 contrast passes AA in both light and dark mode (the section
                 bg is pinned regardless of theme, so foreground must be too). */}
