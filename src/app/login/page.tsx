@@ -148,8 +148,8 @@ export default function LoginPage() {
   return (
     <AuthShell
       title="Welcome back"
-      subtitle="Sign in to your job board"
       illustrationSrc="/auth-illustration.svg"
+      illustrationHeadline="Roles matched to you, ranked by fit."
       illustrationTagline={
         <>
           All your jobs, pulled from{" "}
@@ -160,8 +160,7 @@ export default function LoginPage() {
             LinkedIn, Indeed, Glassdoor, StepStone, XING, Bundesagentur für
             Arbeit
           </strong>
-          , and 10+ other sources, all in one place. Roles matched to you,
-          ranked by fit.
+          , and 10+ other sources, all in one place.
         </>
       }
     >

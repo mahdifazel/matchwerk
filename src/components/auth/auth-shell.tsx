@@ -22,13 +22,16 @@ export function AuthShell({
   title,
   subtitle,
   illustrationSrc,
-  /** Brand caption shown beneath the illustration (Fraunces). */
+  /** Bold sans-serif headline above the editorial caption (Inter 700). */
+  illustrationHeadline,
+  /** Editorial caption beneath the headline (Fraunces italic). */
   illustrationTagline,
   children,
 }: {
   title: string;
-  subtitle: string;
+  subtitle?: string;
   illustrationSrc?: string;
+  illustrationHeadline?: React.ReactNode;
   /** ReactNode so callers can inline emphasis (`<strong>`) where useful. */
   illustrationTagline?: React.ReactNode;
   children: React.ReactNode;
@@ -69,18 +72,34 @@ export function AuthShell({
                 />
               </div>
             </div>
-            {illustrationTagline && (
+            {(illustrationHeadline || illustrationTagline) && (
               <div className="auth-illustration-mount auth-illustration-caption max-w-lg text-center">
-                {/* The "Matchwerk" wordmark lives in the form column's
-                    lockup. Here in the illustration column we keep just
-                    the editorial caption — italic, Ink at 60%, generous
-                    leading, ~60-65 chars per line on lg+. */}
-                <p
-                  className="font-display text-base leading-relaxed italic"
-                  style={{ color: "rgba(26, 18, 51, 0.60)" }}
-                >
-                  {illustrationTagline}
-                </p>
+                {illustrationHeadline && (
+                  // LinkedIn-style hero headline: bold Inter (the body sans),
+                  // larger size for prominence, full Ink #1A1233 so it sits
+                  // a clear step darker than the editorial body below (which
+                  // is Ink at 60%). Tight tracking matches the energy of
+                  // contemporary product marketing headlines (LinkedIn,
+                  // Notion, Stripe).
+                  <p
+                    className="text-[1.75rem] leading-tight tracking-tight"
+                    style={{
+                      color: "#1A1233",
+                      fontWeight: 700,
+                      letterSpacing: "-0.02em",
+                    }}
+                  >
+                    {illustrationHeadline}
+                  </p>
+                )}
+                {illustrationTagline && (
+                  <p
+                    className="font-display mt-4 text-base leading-relaxed italic"
+                    style={{ color: "rgba(26, 18, 51, 0.60)" }}
+                  >
+                    {illustrationTagline}
+                  </p>
+                )}
               </div>
             )}
           </div>
@@ -113,23 +132,29 @@ export function AuthShell({
                 Matchwerk
               </span>
             </div>
-            {/* Header texts on the Sage stage pin to Ink-derived tones so
-                contrast passes AA in both light and dark mode (the section
-                bg is pinned regardless of theme, so foreground must be too). */}
-            <p
-              className={cn(
-                "eyebrow mt-5",
-                hasIllustration
-                  ? "text-muted-foreground lg:text-[#1A1233]/65"
-                  : "text-muted-foreground",
-              )}
-            >
-              {subtitle}
-            </p>
+            {/* Subtitle is optional — login omits it now so the page leads
+                straight from the brand lockup to "Welcome back". */}
+            {subtitle && (
+              <p
+                className={cn(
+                  "eyebrow mt-5",
+                  hasIllustration
+                    ? "text-muted-foreground lg:text-[#1A1233]/65"
+                    : "text-muted-foreground",
+                )}
+              >
+                {subtitle}
+              </p>
+            )}
+            {/* "Welcome back" is intentionally muted on lg+ Sage (Ink at
+                ~55%) so it reads as a supporting greeting rather than the
+                hero — the right-column headline carries the conversion
+                weight on this page. */}
             <h1
               className={cn(
-                "font-display mt-1 text-3xl",
-                hasIllustration && "lg:text-[#1A1233]",
+                "font-display text-3xl",
+                subtitle ? "mt-1" : "mt-5",
+                hasIllustration && "lg:text-[#1A1233]/55",
               )}
             >
               {title}
