@@ -99,9 +99,8 @@ export function AuthShell({
       >
         <div className="w-full max-w-sm lg:-translate-y-[9.5px]">
           <div className="mb-8 flex flex-col items-center text-center">
-            {/* Brand lockup — logomark + wordmark — matching the app header
-                shape. On lg+ the section bg is Sage, so the wordmark color
-                pins to Ink for AA contrast in both themes. */}
+            {/* Brand lockup — small, recessive: pulls the eye to the
+                headline below, not to itself. */}
             <div className="flex items-center gap-2.5">
               <Logomark />
               <span
@@ -113,27 +112,33 @@ export function AuthShell({
                 Matchwerk
               </span>
             </div>
-            {/* Header texts on the Sage stage pin to Ink-derived tones so
-                contrast passes AA in both light and dark mode (the section
-                bg is pinned regardless of theme, so foreground must be too). */}
-            <p
-              className={cn(
-                "eyebrow mt-5",
-                hasIllustration
-                  ? "text-muted-foreground lg:text-[#1A1233]/65"
-                  : "text-muted-foreground",
+            {/* Headline + supporting line, grouped as one unit. Senior-
+                designer hierarchy: brand (above) → task (headline) →
+                action (subtitle). Subtitle moves UNDER the headline in
+                sentence case — more natural reading than an uppercase
+                eyebrow stacked between two other elements. */}
+            <div className="mt-9">
+              <h1
+                className={cn(
+                  "font-display text-[2.25rem] leading-none tracking-tight",
+                  hasIllustration && "lg:text-[#1A1233]",
+                )}
+              >
+                {title}
+              </h1>
+              {subtitle && (
+                <p
+                  className={cn(
+                    "mt-3 text-sm",
+                    hasIllustration
+                      ? "text-muted-foreground lg:text-[#1A1233]/60"
+                      : "text-muted-foreground",
+                  )}
+                >
+                  {subtitle}
+                </p>
               )}
-            >
-              {subtitle}
-            </p>
-            <h1
-              className={cn(
-                "font-display mt-1 text-3xl",
-                hasIllustration && "lg:text-[#1A1233]",
-              )}
-            >
-              {title}
-            </h1>
+            </div>
           </div>
           <div className="border-border/60 bg-card rounded-2xl border p-6 shadow-sm sm:p-8">
             {children}
