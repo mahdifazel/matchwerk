@@ -24,7 +24,7 @@ export default async function ContactPage() {
         </h1>
         <p className="text-muted-foreground mt-3 max-w-prose text-[0.95rem] leading-relaxed">
           Bug to report, idea for a feature, or a question we haven&apos;t covered?
-          Drop it below — your account details come along automatically so we
+          Drop it below, your account details come along automatically so we
           can reply.
         </p>
       </header>
