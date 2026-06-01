@@ -65,6 +65,29 @@ export async function checkCvUpload(userId: string): Promise<GateResult> {
   return { allowed: true };
 }
 
+/** Max contact messages a user can submit per rolling 24h (hard-coded). */
+export const CONTACT_MESSAGES_PER_DAY = 5;
+
+/**
+ * Contact-form gate: a flat 5/day cap counted directly from the
+ * `ContactMessage` table — no token cost or balance check applies (sending
+ * feedback shouldn't cost the user anything). Spam-protection only.
+ */
+export async function checkContactMessage(userId: string): Promise<GateResult> {
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const recent = await prisma.contactMessage.count({
+    where: { userId, createdAt: { gte: since } },
+  });
+  if (recent >= CONTACT_MESSAGES_PER_DAY) {
+    return {
+      allowed: false,
+      status: 429,
+      error: `You can send up to ${CONTACT_MESSAGES_PER_DAY} messages per day. Try again tomorrow.`,
+    };
+  }
+  return { allowed: true };
+}
+
 /**
  * Research gate: requires a positive balance (blocked at exactly 0), then the
  * per-hour rate limit.

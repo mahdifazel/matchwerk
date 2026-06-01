@@ -5,6 +5,7 @@ import { AdminPageHeader } from "@/components/admin/admin-page-header";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { BudgetSettings } from "@/components/admin/budget-settings";
+import { ContactDestinationSettings } from "@/components/admin/contact-destination-settings";
 import { EmailSettings } from "@/components/admin/email-settings";
 import { RateLimitSettings } from "@/components/admin/rate-limit-settings";
 import { SourceSettings } from "@/components/admin/source-settings";
@@ -147,6 +148,11 @@ export function SystemSettings() {
       <section className="space-y-3">
         <h2 className="eyebrow">Email (SMTP)</h2>
         <EmailSettings />
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="eyebrow">Contact destination</h2>
+        <ContactDestinationSettings />
       </section>
     </div>
   );

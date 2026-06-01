@@ -59,6 +59,21 @@ enum JobType {
   UNKNOWN
 }
 
+/// Stage of a user-submitted Contact message in the admin inbox.
+enum ContactMessageStatus {
+  NEW
+  READ
+  REPLIED
+}
+
+/// Triage bucket for the user-facing contact form.
+enum ContactMessageCategory {
+  QUESTION
+  BUG
+  FEATURE_REQUEST
+  OTHER
+}
+
 /// An authenticated account. `password` is null for OAuth-only (Google) users
 /// and a bcrypt hash for email/password users.
 model User {
@@ -83,13 +98,14 @@ model User {
   tokenDebt       Float     @default(0)
   tokensGrantedAt DateTime?
 
-  accounts    Account[]
-  sessions    Session[]
-  profile     Profile?
-  settings    Settings?
-  jobs        Job[]
-  credentials SourceCredential[]
-  ledger      TokenLedger[]
+  accounts        Account[]
+  sessions        Session[]
+  profile         Profile?
+  settings        Settings?
+  jobs            Job[]
+  credentials     SourceCredential[]
+  ledger          TokenLedger[]
+  contactMessages ContactMessage[]
 }
 
 /// Append-only audit trail of token grants/charges. One row per action (not per
@@ -127,6 +143,29 @@ model AdminAuditLog {
 
   @@index([createdAt])
   @@index([actorId])
+}
+
+/// A message submitted by a signed-in user via /contact. Snapshots the
+/// submitter's name + email at send time so the admin inbox stays accurate
+/// even if the user later changes their profile or deletes their account
+/// (the row is hard-deleted via cascade if/when the user is deleted, but the
+/// snapshot avoids the "anonymous" race during the in-between editing window).
+model ContactMessage {
+  id        String                 @id @default(cuid())
+  userId    String
+  user      User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  email     String
+  subject   String
+  category  ContactMessageCategory @default(QUESTION)
+  body      String
+  status    ContactMessageStatus   @default(NEW)
+  createdAt DateTime               @default(now())
+  readAt    DateTime?
+  repliedAt DateTime?
+
+  @@index([status, createdAt])
+  @@index([userId, createdAt])
 }
 
 /// Admin-posted announcement shown as an in-app banner to all users. `level`
