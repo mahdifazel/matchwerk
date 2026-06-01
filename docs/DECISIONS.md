@@ -432,3 +432,35 @@ The same logic applies to `jobType`. For `source`, no UNKNOWN passes because eve
 **Why a wrapper, not inline state at each site.** Plans, rate limits, budget alerts, and SMTP port all needed the same fix — duplicating the buffer + clamp + blur logic at each site would have made each form harder to read. One wrapper, used at every site (`plans-manager.tsx`, `rate-limit-settings.tsx`, `budget-settings.tsx`, `email-settings.tsx`).
 
 **Pattern note.** Uses the render-time `setState` idiom (`if (value !== lastValue) { setLastValue(value); ... }`) to re-seed the buffer when the parent value changes out from under it, not `useEffect` — that's the React 19 recommended pattern for syncing state to changing props.
+
+---
+
+## 41. Auth illustration is inlined client-side, not served via `<img>`
+
+**Decision.** `src/components/auth/auth-illustration.tsx` renders the brand SVG as `<img src="/auth-illustration.svg">` for instant first paint, then `fetch()`s the same URL and swaps to an inline SVG via `dangerouslySetInnerHTML`. After the swap, refs resolve into the `Open Eye` and `Close Eye` groups; effects drive a blink loop (random 6–10 s gap, 200 ms close), cursor tracking (window-level `mousemove` → translate, capped at 20 × 28 px around the eye's own resting center, rAF-throttled), and a click handler that triggers an immediate blink.
+
+**Why inlining is required.** When an SVG is loaded via `<img>`, the browser isolates its DOM — page JavaScript can't reach the named groups, so the blink/tracking/click interactions can't run. Inlining via `dangerouslySetInnerHTML` puts the SVG into the document DOM where refs and event handlers work.
+
+**Why also rendering it as `<img>` first.** The asset is 285 KB. An empty placeholder during the fetch would create a noticeable hole on first paint. Rendering `<img>` first lets the CSS-only micro-animations inside the SVG's own `<style>` block start playing immediately; the fetch then hits browser cache (same URL the `<img>` already pulled), so the swap to inline is near-instant and visually identical. Interactivity unlocks the moment `markup` arrives in state.
+
+**Why animations live inside the SVG, not in `globals.css`.** They need to work in both `<img>` and inline modes. CSS inside the SVG's `<style id="auth-illustration-anim">` block applies in both. The block also sets `[id="Close Eye"]{visibility:hidden}` so the closed state never flashes before JS hydrates. A `@media (prefers-reduced-motion: reduce)` selector inside that block disables both the bob keyframe and the cursor-tracking transition, in lockstep with the page-level reduced-motion guard.
+
+---
+
+## 42. `svgo.config.mjs` disables `cleanupIds`
+
+**Decision.** The project root carries an `svgo.config.mjs` that picks up automatically when `npx svgo` is run anywhere in the repo. It sets `cleanupIds: { remove: false, minify: false }` so SVG `id="…"` attributes are preserved verbatim — including Figma layer names with embedded spaces (`"10519287 9"`) and the `Hi-A`..`Hi-E` brand group names.
+
+**Why preserve them.** Both the in-SVG CSS animations and the JS interactivity in `auth-illustration.tsx` target groups by ID. The default svgo behaviour would strip "unused" IDs (no `url(#…)` reference inside the SVG itself) and minify the rest to `a`, `b`, `c` — which would break every selector in the `<style>` block and every `querySelector` in the component on first optimization run.
+
+**Trade-off.** The optimized SVG is ~50 KB larger than it would be with full ID cleanup (285 KB vs ~235 KB estimated). For an above-the-fold auth asset that gzips to ~80 KB on the wire, that's an acceptable price for keeping the IDs the rest of the app depends on.
+
+---
+
+## 43. `AbortController` cancels stale filter fetches on the board
+
+**Decision.** `fetchJobs(signal?: AbortSignal)` in `src/components/job-board.tsx` takes an optional `AbortSignal` and passes it to the underlying `fetch()`. The `useEffect` that triggers fetches creates an `AbortController` per run and aborts on cleanup. When filters or tab change, the previous in-flight request is cancelled before the next one starts; `AbortError` is silently caught.
+
+**Why.** Filter widgets — especially the Match-score slider — fire many `onValueChange` events per drag. Without cancellation, multiple in-flight requests can resolve out of order: a slow earlier fetch (e.g., for `minScore=30`) can arrive *after* a fast later fetch (e.g., for `minScore=90`) and overwrite the visible results. Visible symptom: "Match filter sometimes doesn't work" — slider shows 90, board shows jobs from 30+. Cancellation makes this race impossible because the older request never produces a `setJobs` call.
+
+**Side benefit.** Every other multi-select filter (Location, Seniority, Job type, Language, Date posted) shared the same race. One fix wired into the shared `fetchJobs` resolves all of them at once.

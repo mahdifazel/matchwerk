@@ -89,6 +89,19 @@ Multi-tenancy with Auth.js, an in-app token economy, **Stripe payments**, a
 - **Hero & metadata generic when no job title is set** — board hero falls back to "Roles matched to you, ranked by fit." and the social-preview title/description ditch the "Product Design jobs" framing for profession-agnostic copy.
 - **Match slider visual fix** — track now spans 0..100 (the 90→100 tail is always a visible active sliver); the threshold is still clamped to ≤90 in `onValueChange`. Previously the active fill collapsed to 0 px at value=90.
 
+### Added — Editorial split-screen login page
+
+- **Brand illustration on `/login`** (`public/auth-illustration.svg`, 285 KB svgo'd from 1.18 MB). New `AuthShell` API: `illustrationSrc?` + `illustrationTagline?` (ReactNode); when provided, the shell switches to a split-screen on `lg+` — form column on a pinned Sage `#C7D7A0` surface, illustration column on a pinned Paper `#F5F1E8` surface. Below `lg`, falls back to single-column centered.
+- **Interactive eye** — new `src/components/auth/auth-illustration.tsx` client component. Renders the SVG as `<img>` for instant first paint, then `fetch()`s the same URL and swaps to inline SVG via `dangerouslySetInnerHTML` so refs can resolve into named groups. Once inlined: blink loop (random 6–10 s gap, 200 ms close duration via `Open Eye`/`Close Eye` visibility toggle), cursor tracking (window-level `mousemove`, eye groups translate together within a 20 × 28 px ellipse around the eye's own resting center, rAF-throttled), and click-to-blink that resets the random schedule.
+- **In-SVG CSS animations** — `<style id="auth-illustration-anim">` block at the top of the file carries a `hi-bob` keyframe (translateY + scale, 3.5 s, evenly phase-offset across six groups via negative delays), a `[id="Close Eye"]{visibility:hidden}` initial state to avoid FOUC, and an in-SVG `@media (prefers-reduced-motion: reduce)` guard. Animations play in both `<img>` and inline modes.
+- **`svgo.config.mjs`** at the project root — picked up automatically by `npx svgo`. Disables `cleanupIds` so Figma layer names (`Hi-A`..`Hi-E`, `Open Eye`, `Close Eye`, `10519287 9`) survive optimization for CSS+JS targeting.
+- **Form polish**: `autoFocus` + `inputMode="email"` on the email field, password show/hide toggle (Eye/EyeOff in the right pad), submit-button spinner, chartreuse-tinted "or" divider hairlines (`bg-accent/30`), forgot-password link aligned to input's bottom edge, error message gets `role="alert"` + `aria-live="polite"`.
+- New `globals.css` keyframe `authIllustrationMount` (fade + 8 px lift, 480 ms ease-out spring) + `.auth-illustration-mount` / `.auth-illustration-caption` classes for the column entrance.
+
+### Fixed — Match filter race condition
+
+- `fetchJobs(signal?: AbortSignal)` in `src/components/job-board.tsx` now takes an `AbortSignal` and passes it to the underlying `fetch()`. The `useEffect` that triggers fetches creates an `AbortController` per run and aborts on cleanup, so a slower earlier filter fetch can no longer resolve *after* a newer one and overwrite the visible results. Visible symptom this fixes: "Match filter sometimes doesn't work" — slider showed e.g. 90, but the board displayed jobs scoring 30+. Cancellation also applies to every other filter (Location, Seniority, Job type, Language, Date posted), so rapid chip-clicking is race-free.
+
 ## [1.1.0] — 2026-05-16
 
 Source-credential management in the UI, editable CV profile, personalized matching, and a board UX rework.

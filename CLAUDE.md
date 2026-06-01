@@ -53,6 +53,7 @@ Job_Hunter/
 │   ├── seed.ts                 # No-op — Settings/Profile are created per-user on first use
 │   └── migrations/             # …add_auth_multitenant, add_token_billing, add_token_purchase, add_admin_roles, add_platform_config, add_plans, add_request_log, add_announcement, add_webhook_event
 ├── prisma.config.ts            # Loads schema + DATABASE_URL via dotenv
+├── svgo.config.mjs             # Picked up by `npx svgo`; preserves Figma layer IDs (cleanupIds disabled)
 ├── scripts/
 │   └── jobspy_bridge.py        # Python bridge for the JobSpy adapter
 ├── .venv-jobspy/               # Gitignored Python venv for jobspy
@@ -95,7 +96,7 @@ Job_Hunter/
     │   ├── app-chrome.tsx          # Persistent header + page transition + impersonation/announcement banners (non-admin/auth routes)
     │   ├── app-header.tsx, theme-toggle.tsx, theme-provider.tsx   # header: token pill (links to /plans), Admin link for admins
     │   ├── announcement-banner.tsx, impersonation-banner.tsx
-    │   ├── auth/                   # auth-shell.tsx (login/register layout), google-button.tsx
+    │   ├── auth/                   # auth-shell.tsx (split-screen layout), auth-illustration.tsx (interactive eye SVG), google-button.tsx
     │   ├── account-form.tsx        # Account form (name, password, balance, Buy tokens, GDPR export/delete)
     │   ├── pricing-table.tsx       # /plans cards → Stripe checkout
     │   ├── job-board.tsx, job-card.tsx, match-badge.tsx (exports ScoreMeter)
@@ -173,6 +174,12 @@ Job_Hunter/
 9. `prisma.job.createMany({ skipDuplicates: true })`.
 10. **Charge** once the run has succeeded (so a failed run isn't billed): `TOKEN.PER_JOB_DISPLAY` (0.5) per surfaced job (fresh + repeats) plus `TOKEN.PER_JOB_RATING` (1) per freshly-rated job. A repeats-only run still bills the re-display but never re-rates.
 
+### Auth pages (login / register)
+- **Shared shell** `src/components/auth/auth-shell.tsx` — single-column centered card by default. When `illustrationSrc` is passed (login only), switches to a **split-screen on `lg+`**: form on the left over a pinned Sage `#C7D7A0` surface, brand illustration on the right over a pinned Paper `#F5F1E8` surface. Below `lg`, falls back to single-column centered (no SVG shipped to phones — the asset is heavy and there's no room for it).
+- **Interactive illustration** `src/components/auth/auth-illustration.tsx` — client component that renders `/auth-illustration.svg` as an `<img>` for instant first paint, then `fetch()`s the same URL (browser cache makes it near-free) and swaps to **inline SVG** via `dangerouslySetInnerHTML`. Inlining is required because the SVG is interactive: the named groups `Open Eye` and `Close Eye` are toggled via `visibility` for a **blink loop** (random 6–10 s gap, 200 ms close duration); the cursor-tracking translate (capped at 20 × 28 px around the **eye's own resting center**, not the SVG center) is applied to both eye groups in lockstep so they stay aligned; clicking the illustration triggers an immediate blink and resyncs the schedule.
+- **CSS micro-animations** live inside the SVG as a `<style id="auth-illustration-anim">` block so they run whether the SVG is loaded via `<img>` or inlined. A `hi-bob` keyframe (translateY + scale, 3.5 s, evenly phase-offset across six groups via negative delays) plays on `Hi-A`…`Hi-E` and `10519287 9`. The block also sets `[id="Close Eye"]{visibility:hidden}` so the closed state never flashes before JS hydrates. A page-level `@media (prefers-reduced-motion: reduce)` block in `globals.css` plus an in-SVG one disable all motion for users who ask.
+- **SVG asset prep** — sourced from `Eye.svg` (1.18 MB), optimised via `npx svgo` to 285 KB. The project-level `svgo.config.mjs` disables `cleanupIds` so the Figma layer names (`Hi-A`…`Hi-E`, `Open Eye`, `Close Eye`, `10519287 9`) survive optimization — these IDs are what the CSS animations and JS event targeting hook onto.
+
 ### Token billing
 - **`src/lib/tokens.ts`** is the single billing surface. `TOKEN` holds the prices/limits: `SIGNUP_GRANT 300`, `CV_PARSE 25`, `PER_JOB_DISPLAY 0.5`, `PER_JOB_RATING 1`, `MAX_SEARCH_JOBS 150` (cap on jobs considered per refresh), `MAX_BOARD_JOBS 70` (cap on the Inbox listing). Balances move in 0.5 increments, hence `Float`.
 - **`getTokenAccount(userId)`** returns `{ balance, debt }`, applying the one-time 150 signup grant lazily on first access if `tokensGrantedAt` is null (an atomic `updateMany` claim, so it can't double-grant). Called on first Google sign-in (`createUser` event in `src/auth.ts`) and on email/password registration (`/api/register`).
@@ -190,6 +197,8 @@ Filters by tab (`inbox` / `starred` / `applied` → `NEW` / `STARRED` / `APPLIED
 `minScore` is the **Match** slider in the filter bar (`src/components/ui/slider.tsx`, a base-ui `Slider` wrapper; reversed/active fill, value bubble) — a minimum match-score threshold from 0–90 in steps of 10. When `> 0` it adds `matchScore >= minScore` (showing jobs scoring value → 100); `0` applies no filter. Unlike the defensive multi-selects it filters directly, so high thresholds can legitimately empty the board. The board's per-user **Source** filter UI was removed; `sources` is still accepted by the API and defaults to all.
 
 Order: starred/inbox sort by `matchScore DESC, fetchedAt DESC`; applied sorts by `appliedAt DESC`.
+
+**Cancel stale filter fetches.** Filter widgets (especially the Match slider) fire many `onValueChange` events as the user interacts. The client `fetchJobs(signal?)` (`src/components/job-board.tsx`) takes an `AbortSignal`; each effect run creates an `AbortController`, hands its signal to the fetch, and aborts on cleanup. So when filters change, the previous in-flight request is cancelled before the next one starts — an older response can never overwrite a newer one (the "Match filter sometimes doesn't work" race).
 
 ### Job actions
 - `PATCH /api/jobs/[id]` accepts `star / unstar / apply / unapply / delete`. `apply` writes `appliedAt = now()`; `unapply` sets `status = NEW, appliedAt = null`; `delete` sets `status = DELETED` (the row stays so dedupe permanently excludes it).

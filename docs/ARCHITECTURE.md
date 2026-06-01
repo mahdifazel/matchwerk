@@ -97,7 +97,7 @@ src/app/
 
 src/components/
 ├── app-header.tsx, theme-toggle.tsx, theme-provider.tsx   # header renders the token-balance pill
-├── auth/                   # auth-shell.tsx, google-button.tsx (login/register UI)
+├── auth/                   # auth-shell.tsx (split-screen layout), auth-illustration.tsx (interactive eye SVG), google-button.tsx
 ├── account-form.tsx        # /account form (name, password, balance)
 ├── job-board.tsx           # Top-level orchestrating component for /
 ├── job-card.tsx            # One row in the listings grid (Star / Don't Show Again / Apply / Back to Inbox)
@@ -161,6 +161,12 @@ API request    ──► getSessionUserId()    ── returns userId or 401; eve
 ```
 
 Auth is **Auth.js v5** with a Google provider and a Credentials (email/password) provider, JWT session strategy (`src/auth.ts` / `src/auth.config.ts`). Passwords are bcrypt-hashed; OAuth-only users have `password = null`. The first account to register or sign in adopts any pre-multi-tenancy rows (`userId = null`) via `claimOrphanDataForFirstUser`; every later account is a no-op. The signup grant (300 tokens) is applied lazily by `getTokenAccount` so accounts created before billing existed still receive it on first access.
+
+**Auth-page surface.** `src/components/auth/auth-shell.tsx` is the shared layout for `/login` and `/register`. When `illustrationSrc` is passed (login only), it switches to a split-screen on `lg+` — form column on a pinned Sage `#C7D7A0` surface, illustration column on a pinned Paper `#F5F1E8` surface. Both surface colors are theme-independent (the illustration carries Ink linework that wouldn't survive a dark plum background). On smaller viewports the layout collapses to single-column centered.
+
+The illustration itself (`src/components/auth/auth-illustration.tsx`) is interactive: blink loop (random 6–10 s gap, 200 ms close), cursor tracking (eye groups translate together within a 20 × 28 px ellipse around the eye's own resting center), and click-to-blink. Interactivity needs the SVG inlined into the document — `<img>` isolates the SVG DOM — so the component renders `<img src="/auth-illustration.svg">` for instant first paint, then `fetch()`s the same URL (browser-cache hit), and swaps to inline SVG via `dangerouslySetInnerHTML`. CSS micro-animations (the `hi-bob` keyframe on the six brand groups) live inside the SVG's own `<style>` block so they play in both modes. Initial `[id="Close Eye"]{visibility:hidden}` is also set in that block so the closed state never flashes before JS hydrates.
+
+The SVG ships at 285 KB (svgo'd from 1.18 MB). The project-level `svgo.config.mjs` disables `cleanupIds` so the Figma layer names (`Hi-A`…`Hi-E`, `Open Eye`, `Close Eye`, `10519287 9`) survive — those IDs are the CSS+JS targets.
 
 ### 3.1 CV upload
 
@@ -301,6 +307,8 @@ Order:
 ```
 
 The "only narrows if subset" rule is critical for fresh jobs whose seniority/type couldn't be classified — see `src/app/api/jobs/route.ts` lines 49–67. The `datePosted` cutoff falls back to `fetchedAt` so aggregator results with no publish date aren't silently filtered.
+
+**Race resilience.** `fetchJobs(signal?: AbortSignal)` in `job-board.tsx` is wired into a `useEffect` that creates an `AbortController` per run and aborts on cleanup. Filter widgets (especially the Match-score slider) fire many events per drag; with cancellation, an older request started at one threshold can't resolve *after* a newer request at a different threshold and overwrite the visible results. `AbortError` is silently caught, not surfaced as a toast.
 
 ### 3.4 Actions
 
