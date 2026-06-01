@@ -97,7 +97,7 @@ export function AuthShell({
           hasIllustration && "lg:basis-[48%] lg:bg-[#C7D7A0] lg:px-10",
         )}
       >
-        <div className="w-full max-w-sm lg:-translate-y-[49.5px]">
+        <div className="w-full max-w-sm lg:-translate-y-[9.5px]">
           <div className="mb-8 flex flex-col items-center text-center">
             {/* Brand lockup — logomark + wordmark — matching the app header
                 shape. On lg+ the section bg is Sage, so the wordmark color
