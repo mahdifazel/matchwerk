@@ -49,7 +49,7 @@ The original audience is one person — the project owner, searching Product Des
 Job_Hunter/
 ├── docker-compose.yml          # Postgres 16 on :5433
 ├── prisma/
-│   ├── schema.prisma           # User(+role/disabledAt), Account, Session, Profile, Settings, SourceCredential(legacy), Job, TokenLedger, AdminAuditLog, AppSetting, PlatformCredential, Plan, RequestLog, Announcement, WebhookEvent; enums (+ UserRole)
+│   ├── schema.prisma           # User(+role/disabledAt), Account, Session, Profile, Settings, SourceCredential(legacy), Job, TokenLedger, AdminAuditLog, AppSetting, PlatformCredential, Plan, RequestLog, Announcement, WebhookEvent, ContactMessage; enums (+ UserRole, ContactMessageStatus, ContactMessageCategory)
 │   ├── seed.ts                 # No-op — Settings/Profile are created per-user on first use
 │   └── migrations/             # …add_auth_multitenant, add_token_billing, add_token_purchase, add_admin_roles, add_platform_config, add_plans, add_request_log, add_announcement, add_webhook_event
 ├── prisma.config.ts            # Loads schema + DATABASE_URL via dotenv
@@ -73,7 +73,8 @@ Job_Hunter/
     │   ├── account/page.tsx    # Account settings: name, password, token balance, GDPR export/delete
     │   ├── settings/page.tsx   # CV upload + job titles (source keys/Sources moved to admin)
     │   ├── plans/page.tsx      # Token purchase plans → Stripe Checkout
-    │   ├── admin/              # Role-gated backoffice: layout + dashboard, users/[id], plans, system, health, announcements, webhooks, roles
+    │   ├── admin/              # Role-gated backoffice: layout + dashboard, users/[id], plans, system, health, announcements, webhooks, roles, messages, messages/[id]
+    │   ├── contact/page.tsx    # Logged-in feedback channel
     │   └── api/
     │       ├── auth/[...nextauth]/route.ts          # Auth.js handlers (signin/callback/signout)
     │       ├── register/route.ts                    # POST email/password registration (+ claim orphans, signup grant)
@@ -174,6 +175,13 @@ Job_Hunter/
 9. `prisma.job.createMany({ skipDuplicates: true })`.
 10. **Charge** once the run has succeeded (so a failed run isn't billed): `TOKEN.PER_JOB_DISPLAY` (0.5) per surfaced job (fresh + repeats) plus `TOKEN.PER_JOB_RATING` (1) per freshly-rated job. A repeats-only run still bills the re-display but never re-rates.
 
+### Contact form (logged-in feedback channel)
+- **User side**: `/contact` (`src/app/contact/page.tsx` + `src/components/contact-form.tsx`) — auth-gated; subject + category (`QUESTION`/`BUG`/`FEATURE_REQUEST`/`OTHER`) + 2000-char body. Name + email snapshot at submit time from the session. **5 messages per user per rolling 24h**, enforced server-side by `checkContactMessage(userId)` in `src/lib/limits.ts` (counts directly from `ContactMessage`, no token cost).
+- **Server**: `POST /api/contact` validates + rate-limits + inserts `ContactMessage` + best-effort fires `sendContactNotification()` (`src/lib/email.ts`) to a configured admin address. Destination resolved from `AppSetting("contact_to")` → env `CONTACT_TO` → null (in which case the row still saves; the admin sees it in the inbox without an email ping). Outgoing subject: `[Matchwerk · <Category>] <user subject>`.
+- **Admin inbox**: `/admin/messages` (`ContactMessagesManager`) — newest-first list with status chips (NEW/READ/REPLIED), category badge, search across subject/name/email, debounced 200 ms client-side. Detail at `/admin/messages/[id]` (`ContactMessageDetail`) shows full body, sender card with deep-link to `/admin/users/[userId]`, action row: **Reply via email** (mailto: with quoted body — opens admin's default mail client and also marks the message replied as a side-effect), **Mark read** / **Mark replied** / **Reset to New**, and a destructive **Delete** behind an `AlertDialog` confirmation. Status transitions and deletes write `contact_message_status` / `contact_message_delete` to `AdminAuditLog`.
+- **Entry points**: header user menu ("Contact us"), `/account` "Need help?" card, admin sidebar Messages item.
+- **Admin config**: `/admin/system` → Contact destination section (writes `AppSetting("contact_to")`; clear to fall back to env).
+
 ### Auth pages (login / register)
 - **Shared shell** `src/components/auth/auth-shell.tsx` — single-column centered card by default. When `illustrationSrc` is passed (login only), switches to a **split-screen on `lg+`**: form on the left over a pinned Sage `#C7D7A0` surface, brand illustration on the right over a pinned Paper `#F5F1E8` surface. Below `lg`, falls back to single-column centered (no SVG shipped to phones — the asset is heavy and there's no room for it).
 - **Interactive illustration** `src/components/auth/auth-illustration.tsx` — client component that renders `/auth-illustration.svg` as an `<img>` for instant first paint, then `fetch()`s the same URL (browser cache makes it near-free) and swaps to **inline SVG** via `dangerouslySetInnerHTML`. Inlining is required because the SVG is interactive: the named groups `Open Eye` and `Close Eye` are toggled via `visibility` for a **blink loop** (random 6–10 s gap, 200 ms close duration); the cursor-tracking translate (capped at 20 × 28 px around the **eye's own resting center**, not the SVG center) is applied to both eye groups in lockstep so they stay aligned; clicking the illustration triggers an immediate blink and resyncs the schedule.
@@ -243,7 +251,8 @@ Order: starred/inbox sort by `matchScore DESC, fetchedAt DESC`; applied sorts by
 - **`Settings`** — one per user (`userId String? @unique`) — `jobTitles[]`, `defaultLocations[]`, `defaultSeniority[]`, `defaultJobTypes[]`, `defaultSources[]`.
 - **`SourceCredential`** — **legacy/unused**. Source keys are now global (`PlatformCredential`); this per-user table is kept only for historical rows.
 - **`Job`** — `userId`, `source` (enum), `externalId`, `dedupeHash`, title/company/location/url/description, `publisher` (for aggregators), `jobType`/`seniority` enums, `publishedAt`, `matchScore`/`matchExplanation`/`missingSkills[]`/`requiredLanguages[]`/`scoredAt`, `status` (`NEW`/`STARRED`/`APPLIED`/`DELETED`), `appliedAt`. **`requiredLanguages`** is a `String[] @default([])` normalised to a subset of `["de", "en"]`; the scorer fills it from the JD, and **an empty array is meaningful**: per DECISIONS #38, it means no language requirement was stated, so the board's "English" filter treats the job as English-suffices. Dedupe uniqueness is **per user** (`@@unique([userId, dedupeHash])`). Indexed by `[userId, status]`, `status`, and `source`.
-- **Enums** — `UserRole` (`USER`/`ADMIN`/`SUPER_ADMIN`); `JobSourceId` (`BA_JOBBOERSE`, `JSEARCH`, `ADZUNA`, `JOBSPY`, `FANTASTIC_JOBS`, `JOOBLE`, plus 6 legacy values kept for historical rows: `INDEED`, `LINKEDIN`, `STEPSTONE`, `XING`, `GLASSDOOR`, `MONSTER`); `JobStatus`; `Seniority`; `JobType`.
+- **`ContactMessage`** — user-submitted feedback. FK to `User` (`onDelete: Cascade`). Snapshots `name` + `email` at submit time so the admin inbox stays accurate even if the user later renames or deletes. `subject`, `category` (enum), `body`, `status` (enum), `createdAt`, `readAt?`, `repliedAt?`. Indexed by `[status, createdAt]` and `[userId, createdAt]`.
+- **Enums** — `UserRole` (`USER`/`ADMIN`/`SUPER_ADMIN`); `JobSourceId` (`BA_JOBBOERSE`, `JSEARCH`, `ADZUNA`, `JOBSPY`, `FANTASTIC_JOBS`, `JOOBLE`, plus 6 legacy values kept for historical rows: `INDEED`, `LINKEDIN`, `STEPSTONE`, `XING`, `GLASSDOOR`, `MONSTER`); `JobStatus`; `Seniority`; `JobType`; `ContactMessageStatus` (`NEW`/`READ`/`REPLIED`); `ContactMessageCategory` (`QUESTION`/`BUG`/`FEATURE_REQUEST`/`OTHER`).
 
 > `userId` is nullable on the four data models only so pre-multi-tenancy rows survive migration as orphans until the first account claims them (`src/lib/claim.ts`). New rows always get the authenticated `userId`, and every query scopes by it.
 

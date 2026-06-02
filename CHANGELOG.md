@@ -102,6 +102,16 @@ Multi-tenancy with Auth.js, an in-app token economy, **Stripe payments**, a
 
 - `fetchJobs(signal?: AbortSignal)` in `src/components/job-board.tsx` now takes an `AbortSignal` and passes it to the underlying `fetch()`. The `useEffect` that triggers fetches creates an `AbortController` per run and aborts on cleanup, so a slower earlier filter fetch can no longer resolve *after* a newer one and overwrite the visible results. Visible symptom this fixes: "Match filter sometimes doesn't work" — slider showed e.g. 90, but the board displayed jobs scoring 30+. Cancellation also applies to every other filter (Location, Seniority, Job type, Language, Date posted), so rapid chip-clicking is race-free.
 
+### Added — Contact form & admin inbox
+
+- New **`ContactMessage`** model (migration `20260602100000_add_contact_message`) with two enums: `ContactMessageStatus` (`NEW`/`READ`/`REPLIED`) and `ContactMessageCategory` (`QUESTION`/`BUG`/`FEATURE_REQUEST`/`OTHER`). FK to `User` (cascade on user delete). Indexes: `[status, createdAt]` and `[userId, createdAt]`.
+- **`/contact`** — auth-gated feedback form (subject up to 120 chars + category + body up to 2000 chars). Identity (name, email) auto-populated from the session and shown as a read-only card above the form.
+- **`POST /api/contact`** — Zod-validated; rate-limited 5/day per user via the new `checkContactMessage` in `src/lib/limits.ts` (counts directly from `ContactMessage`, no token cost). Inserts the row, then best-effort fires `sendContactNotification()` to the admin destination — message is saved even if the email fails.
+- **`sendContactNotification`** in `src/lib/email.ts` — sits next to `sendPasswordResetEmail`, reuses the SMTP → Resend → console transport ladder. Outgoing subject prefixed `[Matchwerk · <Category>] <user subject>` for client-side filtering. HTML body HTML-escapes the user-supplied text and renders newlines as `<br>`.
+- **Admin inbox** — `/admin/messages` lists messages newest-first with status filters (All / New / Read / Replied), a category badge, and a debounced search across subject/name/email. Click-through to `/admin/messages/[id]` shows the full body, sender card with a deep-link to `/admin/users/[userId]`, and an action row: **Reply via email** (mailto: with `Re: <subject>` and quoted body — opens the admin's default mail client and also marks the message replied), **Mark read** / **Mark replied** / **Reset to New**, plus a destructive **Delete** behind an `AlertDialog` confirmation. Status transitions write `contact_message_status` to `AdminAuditLog`; deletes write `contact_message_delete` preserving sender email + subject + last status.
+- **Entry points** — header user menu ("Contact us" next to Settings), `/account` "Need help?" card, admin sidebar "Messages" item between Announcements and Stripe Events.
+- **Admin config** — `/admin/system` gains a "Contact destination" section that writes `AppSetting("contact_to")` (env `CONTACT_TO` as fallback when DB is empty). Same DB-overrides-env pattern as the AI keys.
+
 ## [1.1.0] — 2026-05-16
 
 Source-credential management in the UI, editable CV profile, personalized matching, and a board UX rework.
