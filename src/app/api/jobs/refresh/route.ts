@@ -127,14 +127,11 @@ async function runRefresh() {
     });
   }
 
-  // Cost: 0.5 per surfaced job (fresh + repeats) + 1 per freshly-rated job.
-  const ratedCount = fresh.length;
-  const cost =
-    TOKEN.PER_JOB_DISPLAY * (ratedCount + repeatsCount) +
-    TOKEN.PER_JOB_RATING * ratedCount;
-
-  // Only repeats reappeared — bill their re-display (no re-rating) and stop.
-  if (ratedCount === 0) {
+  // Skip scoring entirely if there's nothing fresh to score — bill just the
+  // re-display for repeats and return early. (We still re-display the repeats
+  // because the user "re-saw" them via this Research action.)
+  if (fresh.length === 0) {
+    const cost = TOKEN.PER_JOB_DISPLAY * repeatsCount;
     const tokens = await charge(userId, cost, "research", {
       considered: considered.length,
       rated: 0,
@@ -170,10 +167,26 @@ async function runRefresh() {
     })),
   );
 
-  // 5. Persist.
+  // 5. Drop fresh jobs that didn't get a score (transient AI 429, malformed
+  // response, etc.) — they never enter the DB and never bill the user, so a
+  // future Research can re-fetch and retry them. Every persisted row is
+  // guaranteed to have a real matchScore, missingSkills, and
+  // requiredLanguages — the previous null-allowed shape no longer happens.
+  const scoredFresh = fresh.filter((j) => scores.has(j.dedupeHash));
+  const droppedUnscored = fresh.length - scoredFresh.length;
+
+  // Cost: 0.5 per surfaced job (scored-fresh + repeats) + 1 per freshly-rated
+  // job. Unscored fresh jobs are not surfaced and not billed.
+  const ratedCount = scoredFresh.length;
+  const cost =
+    TOKEN.PER_JOB_DISPLAY * (ratedCount + repeatsCount) +
+    TOKEN.PER_JOB_RATING * ratedCount;
+
+  // 6. Persist (only scored rows). The score lookup is guaranteed by the
+  // filter above, so the `!` non-null assertion is safe.
   const now = new Date();
-  const rows: Prisma.JobCreateManyInput[] = fresh.map((j) => {
-    const score = scores.get(j.dedupeHash);
+  const rows: Prisma.JobCreateManyInput[] = scoredFresh.map((j) => {
+    const score = scores.get(j.dedupeHash)!;
     return {
       userId,
       source: j.source,
@@ -188,25 +201,28 @@ async function runRefresh() {
       jobType: j.jobType,
       seniority: j.seniority,
       publishedAt: j.publishedAt,
-      matchScore: score?.score ?? null,
-      matchExplanation: score?.explanation ?? null,
-      missingSkills: score?.missingSkills ?? [],
-      requiredLanguages: score?.requiredLanguages ?? [],
-      scoredAt: score ? now : null,
+      matchScore: score.score,
+      matchExplanation: score.explanation,
+      missingSkills: score.missingSkills,
+      requiredLanguages: score.requiredLanguages,
+      scoredAt: now,
       status: "NEW",
     };
   });
 
-  const result = await prisma.job.createMany({
-    data: rows,
-    skipDuplicates: true,
-  });
+  // `createMany` no-ops cleanly on an empty array, but skip it explicitly
+  // when nothing scored so the row count is unambiguously 0.
+  const result =
+    rows.length > 0
+      ? await prisma.job.createMany({ data: rows, skipDuplicates: true })
+      : { count: 0 };
 
-  // 6. Charge once the new jobs are scored + stored, so a failed run isn't billed.
+  // 7. Charge once the new jobs are scored + stored, so a failed run isn't billed.
   const tokens = await charge(userId, cost, "research", {
     considered: considered.length,
     rated: ratedCount,
     repeats: repeatsCount,
+    ...(droppedUnscored > 0 ? { droppedUnscored } : {}),
   });
 
   return NextResponse.json({
