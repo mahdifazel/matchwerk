@@ -86,14 +86,17 @@ export async function GET(request: Request) {
     }
   }
 
-  // Minimum match-score threshold (0–90, steps of 10). When > 0, show only
-  // jobs scoring at or above it (value → 100). Unscored jobs are excluded once
-  // a threshold is set; at 0 we don't filter, so everything is shown.
+  // Minimum match-score threshold (0–90, steps of 10). The slider value sets
+  // the floor; jobs without a score are ALWAYS excluded. Prisma `gte` is null-
+  // safe at the SQL layer (`matchScore >= 0` is unknown for nulls and so the
+  // row is dropped), so anchoring the floor at 0 when no threshold is set
+  // gives us the "must have a score" rule for free.
   const minScoreRaw = Number(searchParams.get("minScore"));
-  if (Number.isFinite(minScoreRaw) && minScoreRaw > 0) {
-    const minScore = Math.min(90, Math.max(0, Math.round(minScoreRaw)));
-    where.matchScore = { gte: minScore };
-  }
+  const minScore =
+    Number.isFinite(minScoreRaw) && minScoreRaw > 0
+      ? Math.min(90, Math.max(0, Math.round(minScoreRaw)))
+      : 0;
+  where.matchScore = { gte: minScore };
 
   if (locations.length > 0 && !locations.includes("all")) {
     const ors: Prisma.JobWhereInput[] = [];

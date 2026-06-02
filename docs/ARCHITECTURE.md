@@ -56,7 +56,7 @@ Multi-tenant: every row carries a `userId` and every query is scoped to the sign
 
 ```
 prisma/
-├── schema.prisma           # User, Account, Session, VerificationToken, Profile, Settings, SourceCredential, Job, TokenLedger + enums
+├── schema.prisma           # User, Account, Session, VerificationToken, Profile, Settings, SourceCredential, Job, TokenLedger, ContactMessage + enums
 ├── seed.ts                 # No-op — rows are created per-user on first use
 └── migrations/             # init / add_aggregator_sources / add_fantastic_jobs_source / add_source_credentials / add_auth_multitenant / add_token_billing
 
@@ -76,8 +76,9 @@ src/app/
 ├── page.tsx                # /         — Board
 ├── login/page.tsx          # /login    — Google + email/password
 ├── register/page.tsx       # /register — open registration
-├── account/page.tsx        # /account  — name, password, token balance
+├── account/page.tsx        # /account  — name, password, token balance, contact card
 ├── settings/page.tsx       # /settings
+├── contact/page.tsx        # /contact  — logged-in feedback form (subject + category + body)
 └── api/
     ├── auth/[...nextauth]/route.ts     # Auth.js handlers
     ├── register/route.ts               # POST — email/password registration (+ claim, signup grant)
@@ -91,9 +92,14 @@ src/app/
     │   ├── [id]/route.ts               # PATCH — star/unstar/apply/unapply/delete
     │   └── bulk/route.ts               # POST  — bulk delete or bulk unapply
     ├── settings/route.ts               # GET, PUT — Zod-validated
-    └── sources/
-        ├── route.ts                    # GET — runtime status of each source (+ editable, credentialSource)
-        └── [id]/credentials/route.ts   # GET / PUT / DELETE — per-source secret management (masked)
+    ├── sources/
+    │   ├── route.ts                    # GET — runtime status of each source (+ editable, credentialSource)
+    │   └── [id]/credentials/route.ts   # GET / PUT / DELETE — per-source secret management (masked)
+    ├── contact/route.ts                # POST — user-submitted contact message (5/day, fires sendContactNotification)
+    └── admin/
+        ├── messages/route.ts           # GET — admin inbox list (status/category/q filters)
+        ├── messages/[id]/route.ts      # GET / PATCH (markRead/markReplied/markNew) / DELETE
+        └── system/contact/route.ts     # GET / PUT — AppSetting "contact_to" (env CONTACT_TO fallback)
 
 src/components/
 ├── app-header.tsx, theme-toggle.tsx, theme-provider.tsx   # header renders the token-balance pill
@@ -332,6 +338,48 @@ The "only narrows if subset" rule is critical for fresh jobs whose seniority/typ
 
 **Board UI semantics for Clear List:** on Inbox / Starred it's a non-destructive view-only clear (no DB write). On Applied it opens a confirmation dialog, then bulk-unapplies the visible jobs back to Inbox.
 
+### 3.5 Contact form & admin inbox
+
+```
+User                       Server                     Admin
+────                       ──────                     ─────
+POST /api/contact ─────►   checkContactMessage(uid)
+                           5/day cap (counts directly
+                           from ContactMessage)
+                              │ allowed
+                              ▼
+                           prisma.contactMessage
+                           .create({ snapshot name/email,
+                                     subject, category,
+                                     body, status: NEW })
+                              │
+                              ▼
+                           sendContactNotification()
+                           via existing sendEmail()
+                           (SMTP → Resend → console)
+                                                      ─────► email arrives at
+                                                              AppSetting("contact_to")
+                                                              (env CONTACT_TO fallback)
+                                                              with CTA to admin inbox
+
+                                                      GET /admin/messages
+                                                      ────────────────────► list with
+                                                                            status + filters
+                                                      PATCH /admin/messages/:id
+                                                      ────────────────────► markRead /
+                                                                            markReplied /
+                                                                            markNew
+                                                                            (audit log entry)
+                                                      DELETE /admin/messages/:id
+                                                      ────────────────────► row removed;
+                                                                            audit log keeps
+                                                                            sender + subject
+```
+
+**Reuse points.** `sendContactNotification` lives next to `sendPasswordResetEmail` in `src/lib/email.ts`. `checkContactMessage` follows the `checkCvUpload` / `checkResearch` shape in `src/lib/limits.ts` — same `GateResult` discriminated union, same `status: 429` for over-limit, but counted from `ContactMessage` instead of `TokenLedger` (no token cost). `getAdminUser` / `logAdminAction` from `src/lib/admin.ts` guard all admin routes and write the audit trail. Admin destination via `AppSetting("contact_to")` follows the same DB-overrides-env pattern as the AI keys.
+
+**Reply flow.** Admin clicks "Reply via email" → mailto: opens their default email client with `Re: <subject>` + the original body quoted; the click also marks the message replied as a side-effect, so the inbox status reflects intent without requiring a follow-up click.
+
 ---
 
 ## 4. Source adapter pattern
@@ -411,6 +459,18 @@ updatedAt                         title, company, location, url, publisher?, des
                                   fetchedAt, updatedAt
                                   @@unique([userId, dedupeHash])
                                   @@index([userId, status]) @@index([status]) @@index([source])
+
+ContactMessage
+────────────────────
+id (cuid)
+userId       → User (onDelete: Cascade)
+name, email                       (snapshot at submit time)
+subject
+category     (ContactMessageCategory: QUESTION|BUG|FEATURE_REQUEST|OTHER)
+body
+status       (ContactMessageStatus: NEW|READ|REPLIED)
+createdAt, readAt?, repliedAt?
+@@index([status, createdAt]) @@index([userId, createdAt])
 ```
 
 Every data row carries a `userId` (`onDelete: Cascade` from `User`). `userId` is nullable on `Profile` / `Settings` / `Job` / `SourceCredential` *only* so pre-multi-tenancy rows survive migration as orphans until the first account claims them (`src/lib/claim.ts`); new rows always get the authenticated id.

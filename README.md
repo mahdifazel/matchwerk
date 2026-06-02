@@ -22,6 +22,7 @@ A multi-tenant AI job-search web app for Product Design (and other) roles in Ger
 - **Board** with three tabs (Inbox / Starred / Applied), filters by location / seniority / job type / **language (German / English)** / date posted plus a **match-score** slider (minimum-threshold, 0–90% in 10% steps), and a circular score meter on every listing. The Language filter maps against `Job.requiredLanguages` (which the scorer fills per JD); per the product rule, a job whose JD makes no language requirement counts as English-suffices — the German tech-market default. Per-card actions: Star, Apply, **Don't Show Again**, and (on Applied jobs) **Back to Inbox**. A non-destructive **Clear List** soft-hides the current Inbox view (rows stay in the DB and come back on the next Research); on Applied it instead bulk-moves jobs back to Inbox after a confirmation.
 - **Editorial UI** ("Atelier" design system): Fraunces display serif + Inter body + JetBrains Mono numbers, warm-cream light / deep-ink dark, single chartreuse accent.
 - **Auth page split-screen** (login only, on `lg+`): form on a Sage `#C7D7A0` surface paired with an interactive brand illustration on Paper — the eye blinks at random 6–10 s intervals, tracks the cursor within a 20 × 28 px radius around its own resting center, and gives an immediate blink on click. Falls back to a single-column centered card on tablet and mobile.
+- **Contact form & admin inbox.** Signed-in users can send a message via `/contact` (subject + category + 2000-char body; 5/day per user rate-limited). Messages land in the new `/admin/messages` inbox with status tracking (New / Read / Replied) and a "Reply via email" mailto: that opens the admin's default mail client with the original message quoted. A `sendContactNotification()` email is also fired to the admin destination (`AppSetting "contact_to"` with env `CONTACT_TO` fallback) so the admin gets a real-time ping. Admins can delete messages with an audit-log entry recording the deletion.
 
 ## Prerequisites
 
@@ -86,6 +87,7 @@ Two gitignored files. See `.env.example` for the canonical list and inline docs.
 | `.env.local` | `ADZUNA_APP_ID` + `ADZUNA_APP_KEY` | Optional. Free credentials at [developer.adzuna.com](https://developer.adzuna.com/). |
 | `.env.local` | `JOOBLE_API_KEY` | Optional. Free API key from [jooble.org/api/about](https://jooble.org/api/about). |
 | `.env.local` | `JOBSPY_SITES` | Optional. Comma-separated override; default `indeed,glassdoor`. |
+| `.env.local` | `CONTACT_TO` | Optional. Fallback destination email for `/contact` submissions when the admin hasn't set one in `AppSetting "contact_to"`. Messages still save without it; no email goes out. |
 
 > The AI and source API keys above are **fallbacks**. Once a matching key is saved in the **admin backoffice** (System Settings), the DB-stored value wins and you can leave the env entry blank. Clear the DB entry to fall back to env again.
 

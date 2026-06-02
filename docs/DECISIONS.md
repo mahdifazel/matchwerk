@@ -464,3 +464,21 @@ The same logic applies to `jobType`. For `source`, no UNKNOWN passes because eve
 **Why.** Filter widgets — especially the Match-score slider — fire many `onValueChange` events per drag. Without cancellation, multiple in-flight requests can resolve out of order: a slow earlier fetch (e.g., for `minScore=30`) can arrive *after* a fast later fetch (e.g., for `minScore=90`) and overwrite the visible results. Visible symptom: "Match filter sometimes doesn't work" — slider shows 90, board shows jobs from 30+. Cancellation makes this race impossible because the older request never produces a `setJobs` call.
 
 **Side benefit.** Every other multi-select filter (Location, Seniority, Job type, Language, Date posted) shared the same race. One fix wired into the shared `fetchJobs` resolves all of them at once.
+
+---
+
+## 44. Contact form is logged-in-only with mailto reply
+
+**Decision.** `/contact` requires authentication; we don't expose a public form. Messages persist to a new `ContactMessage` table AND fire an email notification to the admin (`sendContactNotification`). Admin replies happen in the admin's own email client via a `mailto:` link — we don't ship a threaded reply UI.
+
+**Why logged-in only.** Identity + email come from the session, so the form has no fields a spam bot can poison. We get the user's display name and account email "for free" and the rate limit (5/day per user via `checkContactMessage`) is enforced against a real userId, not a fragile IP/cookie. A public form would need Cloudflare Turnstile / hCaptcha + IP rate-limiting, and an extra "we never reply to spam" UX layer we don't yet have the volume to justify.
+
+**Why persist AND email.** Email-only would risk missed messages if the admin doesn't read their inbox in time; DB-only would miss the real-time ping. Doing both gets a real-time alert AND a paper trail at `/admin/messages`, with the email able to fail without losing the message (the row is created first; the email is best-effort). Subject is prefixed `[Matchwerk · <Category>]` so the admin can client-side filter in their email client.
+
+**Why mailto: instead of an in-app reply UI.** A reply UI would need a rich-text editor, HTML email templating, threading, and a "reply was sent" confirmation channel — significant scope creep. Reply via the admin's own email client uses tools they already know, threads naturally in the user's inbox (the user sees a normal reply from a real address, not a no-reply system), and the click-to-mailto also marks the message replied as a side-effect so the inbox status reflects intent without an extra click. A future v2 with a real ticketing system can replace this.
+
+**Snapshot identity at submit time.** `ContactMessage.name` and `.email` are stored on the row (not just looked up via the FK) so the admin inbox stays accurate even if the user later renames or deletes their account. The FK cascades on user delete; the snapshot is what stays in the email notification regardless.
+
+**Destination via AppSetting, not env-only.** `AppSetting("contact_to")` is read first, with env `CONTACT_TO` as a fallback. Same pattern as the AI keys — admin can edit it in `/admin/system` without a redeploy.
+
+**Delete carries an audit trail.** `DELETE /api/admin/messages/[id]` writes `contact_message_delete` to `AdminAuditLog` capturing the sender's email, the subject, and the last-known status. The body itself is unrecoverable after delete, but the metadata survives.
