@@ -4,6 +4,7 @@ import {
   Activity,
   ArrowLeft,
   LayoutDashboard,
+  Mail,
   Megaphone,
   Menu,
   ShieldCheck,
@@ -28,6 +29,7 @@ const NAV: NavItem[] = [
   { href: "/admin/system", label: "System Settings", icon: SlidersHorizontal },
   { href: "/admin/health", label: "API Health", icon: Activity },
   { href: "/admin/announcements", label: "Announcements", icon: Megaphone },
+  { href: "/admin/messages", label: "Messages", icon: Mail },
   { href: "/admin/webhooks", label: "Stripe Events", icon: Webhook },
   { href: "/admin/roles", label: "Role Management", icon: ShieldCheck, superAdminOnly: true },
 ];

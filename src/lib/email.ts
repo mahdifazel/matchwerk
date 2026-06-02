@@ -1,4 +1,5 @@
 import nodemailer from "nodemailer";
+import type { ContactMessageCategory } from "@/generated/prisma/enums";
 import { getAppSetting, getPlatformCredential } from "@/lib/platform";
 
 // SERVER-ONLY. Email delivery with three transports, tried in order:
@@ -123,5 +124,64 @@ export async function sendTestEmail(to: string): Promise<SendResult> {
     to,
     subject: "Matchwerk — SMTP test",
     html: "<p>This is a test email from Matchwerk. If you received it, your SMTP settings work. ✅</p>",
+  });
+}
+
+/** Human-readable label for each ContactMessageCategory value. */
+const CATEGORY_LABELS: Record<ContactMessageCategory, string> = {
+  QUESTION: "Question",
+  BUG: "Bug",
+  FEATURE_REQUEST: "Feature request",
+  OTHER: "Other",
+};
+
+/** Minimal HTML escaping for user-supplied text rendered into the email body. */
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/**
+ * Notify the admin that a signed-in user submitted a /contact form. The
+ * outgoing subject is prefixed `[Matchwerk · <Category>]` so the admin can
+ * filter by category in their own email client. The body links back to
+ * `/admin/messages/<id>` so they can mark-read / mark-replied in the UI.
+ */
+export async function sendContactNotification(opts: {
+  to: string;
+  from: { name: string; email: string };
+  subject: string;
+  category: ContactMessageCategory;
+  body: string;
+  adminUrl: string;
+}): Promise<SendResult> {
+  const label = CATEGORY_LABELS[opts.category] ?? "Question";
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 560px;">
+      <p style="margin:0 0 12px;color:#6b5f86;font-size:12px;letter-spacing:.06em;text-transform:uppercase;">
+        New ${escapeHtml(label.toLowerCase())} via Matchwerk contact form
+      </p>
+      <p style="margin:0 0 4px;font-size:16px;"><strong>${escapeHtml(opts.from.name || opts.from.email)}</strong></p>
+      <p style="margin:0 0 16px;font-size:14px;color:#6b5f86;">${escapeHtml(opts.from.email)}</p>
+      <p style="margin:0 0 4px;font-size:14px;color:#6b5f86;">Subject</p>
+      <p style="margin:0 0 16px;font-size:16px;font-weight:600;">${escapeHtml(opts.subject)}</p>
+      <p style="margin:0 0 4px;font-size:14px;color:#6b5f86;">Message</p>
+      <div style="margin:0 0 24px;font-size:15px;line-height:1.6;white-space:pre-wrap;">${escapeHtml(opts.body)}</div>
+      <p style="margin:0;">
+        <a href="${escapeHtml(opts.adminUrl)}"
+           style="display:inline-block;padding:10px 16px;background:#1A1233;color:#F5F1E8;text-decoration:none;border-radius:8px;font-size:14px;">
+          Open in admin inbox
+        </a>
+      </p>
+    </div>
+  `;
+  return sendEmail({
+    to: opts.to,
+    subject: `[Matchwerk · ${label}] ${opts.subject}`,
+    html,
   });
 }
