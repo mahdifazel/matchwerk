@@ -1,12 +1,22 @@
 "use client";
 
-import { ArrowLeft, ExternalLink, Mail, MailOpen, RotateCcw } from "lucide-react";
+import { ArrowLeft, ExternalLink, Mail, MailOpen, RotateCcw, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
 import { AdminPageHeader } from "@/components/admin/admin-page-header";
 import { StatusBadge } from "@/components/admin/admin-ui";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 
 type Category = "QUESTION" | "BUG" | "FEATURE_REQUEST" | "OTHER";
@@ -67,6 +77,8 @@ export function ContactMessageDetail({ message }: { message: Message }) {
     message.repliedAt,
   );
   const [busy, setBusy] = useState<"" | "markRead" | "markReplied" | "markNew">("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   async function transition(action: "markRead" | "markReplied" | "markNew") {
     setBusy(action);
@@ -96,6 +108,28 @@ export function ContactMessageDetail({ message }: { message: Message }) {
       toast.error("Could not reach the server.");
     } finally {
       setBusy("");
+    }
+  }
+
+  async function handleDelete() {
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/admin/messages/${message.id}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => null);
+        toast.error(d?.error ?? "Could not delete.");
+        return;
+      }
+      toast.success("Message deleted.");
+      router.push("/admin/messages");
+      router.refresh();
+    } catch {
+      toast.error("Could not reach the server.");
+    } finally {
+      setDeleting(false);
+      setConfirmDelete(false);
     }
   }
 
@@ -176,6 +210,19 @@ export function ContactMessageDetail({ message }: { message: Message }) {
             Reset to New
           </Button>
         )}
+        {/* Pushed to the right edge of the action row — destructive actions
+            sit visually apart from the affirmative ones (Reply / Mark
+            read / Mark replied) so a fat-finger click is less likely. */}
+        <Button
+          size="sm"
+          variant="ghost"
+          className="text-destructive hover:bg-destructive/10 ml-auto gap-1.5"
+          onClick={() => setConfirmDelete(true)}
+          disabled={deleting}
+        >
+          <Trash2 className="size-3.5" />
+          Delete
+        </Button>
       </div>
 
       {/* Body */}
@@ -226,6 +273,32 @@ export function ContactMessageDetail({ message }: { message: Message }) {
           )}
         </div>
       </div>
+
+      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this message?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently removes the message from the database. The
+              audit log keeps a record of the deletion (who, when, sender
+              email, subject) — but the body itself can&apos;t be recovered.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={deleting}
+              onClick={(e) => {
+                e.preventDefault();
+                handleDelete();
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleting ? "Deleting…" : "Delete message"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
