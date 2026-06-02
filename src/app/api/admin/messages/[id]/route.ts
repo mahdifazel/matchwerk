@@ -116,3 +116,36 @@ export async function PATCH(
 
   return NextResponse.json({ message: updated });
 }
+
+export async function DELETE(
+  _request: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const admin = await getAdminUser();
+  if (!admin) return FORBIDDEN;
+
+  const { id } = await params;
+  // Read first so the audit trail captures the submitter's email even though
+  // the row is about to be gone.
+  const existing = await prisma.contactMessage.findUnique({
+    where: { id },
+    select: { id: true, email: true, subject: true, status: true },
+  });
+  if (!existing) {
+    return NextResponse.json({ error: "Not found." }, { status: 404 });
+  }
+
+  await prisma.contactMessage.delete({ where: { id } });
+
+  await logAdminAction(
+    { id: admin.id, email: admin.email },
+    "contact_message_delete",
+    {
+      targetId: existing.id,
+      targetEmail: existing.email,
+      metadata: { subject: existing.subject, status: existing.status },
+    },
+  );
+
+  return NextResponse.json({ ok: true });
+}
