@@ -74,7 +74,12 @@ export function AppHeader() {
 function TokenPill() {
   const { status } = useSession();
   const { balance } = useTokenBalance();
-  if (status !== "authenticated" || balance == null) return null;
+  // Hide only on the definitively signed-out state. `status === "loading"`
+  // happens whenever NextAuth re-validates the session on tab refocus
+  // (refetchOnWindowFocus is on by default in SessionProvider) — bailing
+  // there would make the pill flicker out for ~100-500ms every time the
+  // user switches tabs. Balance is the separate gate for "no data yet".
+  if (status === "unauthenticated" || balance == null) return null;
 
   const low = balance < LOW_TOKEN_THRESHOLD;
 
@@ -101,9 +106,13 @@ function TokenPill() {
 function UserMenu() {
   const { data: session, status } = useSession();
   const router = useRouter();
-  if (status !== "authenticated") return null;
-
-  const user = session.user;
+  // Same anti-flicker as TokenPill: don't bail on the transient "loading"
+  // state that NextAuth enters when the tab refocuses and the session is
+  // being revalidated (refetchOnWindowFocus default). NextAuth preserves
+  // `data` across that refetch, so we keep rendering the existing identity.
+  if (status === "unauthenticated") return null;
+  const user = session?.user;
+  if (!user) return null;
   const display = user.name || user.email || "Account";
   const initial = (user.name || user.email || "?").charAt(0).toUpperCase();
   const isAdmin = user.role === "ADMIN" || user.role === "SUPER_ADMIN";
