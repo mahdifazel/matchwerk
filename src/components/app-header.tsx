@@ -31,21 +31,33 @@ export function AppHeader() {
 
   return (
     <header className="border-border/60 bg-background/75 sticky top-0 z-30 border-b backdrop-blur-md">
-      <div className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between px-5 sm:px-8">
-        <Link href="/" className="group flex items-center gap-2.5">
+      {/* Mobile-first sizing: shorter bar, tighter padding, no wordmark.
+          The wordmark alone is ~115px on a 375px screen, so hiding it
+          below sm: is the single biggest fix for the overflow that
+          made the header feel "non-responsive". */}
+      <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between gap-2 px-4 sm:h-16 sm:gap-3 sm:px-8">
+        <Link
+          href="/"
+          className="group flex shrink-0 items-center gap-2.5"
+          aria-label="Matchwerk home"
+        >
           <Logomark />
-          <span className="font-display text-[1.35rem] leading-none tracking-tight">
+          {/* Wordmark is decorative on small screens — the logomark
+              carries the brand alone. Show from sm+ where there's room. */}
+          <span className="font-display hidden text-[1.35rem] leading-none tracking-tight sm:inline">
             Matchwerk
           </span>
         </Link>
 
-        <nav className="flex items-center gap-1 sm:gap-2">
+        <nav className="flex min-w-0 items-center gap-0.5 sm:gap-2">
           {NAV.map((item) => (
             <Link
               key={item.href}
               href={item.href}
               className={cn(
-                "relative px-2.5 py-1.5 text-[0.95rem] font-medium tracking-tight transition-colors",
+                // Compact on mobile so two text links + a coin pill + two
+                // icon buttons can co-exist inside ~330px of nav space.
+                "relative px-2 py-1.5 text-sm font-medium tracking-tight transition-colors sm:px-2.5 sm:text-[0.95rem]",
                 isActive(item.href)
                   ? "text-foreground"
                   : "text-muted-foreground hover:text-foreground",
@@ -55,7 +67,7 @@ export function AppHeader() {
               <span
                 aria-hidden
                 className={cn(
-                  "bg-foreground pointer-events-none absolute inset-x-2.5 -bottom-px h-px origin-left transition-transform duration-200",
+                  "bg-foreground pointer-events-none absolute inset-x-2 -bottom-px h-px origin-left transition-transform duration-200 sm:inset-x-2.5",
                   isActive(item.href) ? "scale-x-100" : "scale-x-0",
                 )}
               />
@@ -88,7 +100,9 @@ function TokenPill() {
       href="/plans"
       title={low ? "Low balance — buy more tokens" : "Token balance — buy more"}
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-sm font-medium tabular-nums transition-colors",
+        // Smaller on mobile (px-2, text-xs) so it fits between the nav
+        // links and the icon buttons without overflow; full size on sm+.
+        "inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-1 text-xs font-medium tabular-nums transition-colors sm:gap-1.5 sm:px-2.5 sm:text-sm",
         low
           ? "border-accent/60 bg-accent/15 hover:bg-accent/25 text-foreground"
           : "border-border/70 bg-card hover:bg-muted text-foreground",
@@ -98,7 +112,10 @@ function TokenPill() {
         className={cn("size-3.5", low ? "text-foreground" : "text-muted-foreground")}
       />
       {formatTokens(balance)}
-      {low && <span className="text-xs font-semibold">· Top up</span>}
+      {/* "Top up" hint is supporting copy; hide on mobile to save room. */}
+      {low && (
+        <span className="hidden text-xs font-semibold sm:inline">· Top up</span>
+      )}
     </Link>
   );
 }
