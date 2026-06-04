@@ -44,12 +44,12 @@ export async function POST(request: Request) {
     // and friends are unchanged.
     const session = await getStripe().checkout.sessions.create({
       mode: "payment",
-      // Stripe SDK v22's TS types only enumerate "_page"-suffixed variants
-      // ("embedded_page" / "hosted_page") even though the documented + live
-      // API values are "embedded" / "hosted" / "custom". Suppression keeps
-      // the runtime correct without inventing a fake type.
-      // @ts-expect-error -- see comment above
-      ui_mode: "embedded",
+      // Stripe API `2026-04-22.dahlia` (what Stripe SDK v22 targets by
+      // default) renamed `ui_mode` values: `embedded` → `embedded_page`
+      // and `hosted` → `hosted_page`. Most of Stripe's public docs still
+      // show the old names, but the live API for this version requires the
+      // `_page` suffix.
+      ui_mode: "embedded_page",
       payment_method_types: ["card"],
       // Auto-detect German vs English (and beyond) from the user's browser —
       // the embedded form re-renders text in their language.
@@ -94,9 +94,13 @@ export async function POST(request: Request) {
     });
   } catch (err) {
     console.error("Stripe checkout session creation failed:", err);
-    return NextResponse.json(
-      { error: "Could not start checkout. Please try again." },
-      { status: 502 },
-    );
+    // In development, surface Stripe's own message so the dev tools network
+    // tab tells you exactly what's wrong (param name, invalid value, etc.).
+    // Production keeps the generic message so we don't leak Stripe internals.
+    const isDev = process.env.NODE_ENV !== "production";
+    const message = isDev && err instanceof Error
+      ? `Could not start checkout: ${err.message}`
+      : "Could not start checkout. Please try again.";
+    return NextResponse.json({ error: message }, { status: 502 });
   }
 }

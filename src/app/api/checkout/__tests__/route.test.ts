@@ -73,7 +73,7 @@ describe("POST /api/checkout", () => {
     });
 
     const arg = create.mock.calls[0][0];
-    expect(arg.ui_mode).toBe("embedded");
+    expect(arg.ui_mode).toBe("embedded_page");
     expect(arg.line_items[0].price_data.unit_amount).toBe(1999); // 19.99 € → cents
     expect(arg.metadata).toEqual({ userId: "u1", planId: "plus" });
     expect(arg.client_reference_id).toBe("u1");
