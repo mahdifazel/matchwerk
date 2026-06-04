@@ -197,10 +197,6 @@ export default async function CheckoutPage({
       <section className="flex flex-col px-5 py-10 sm:px-8 lg:basis-[48%] lg:px-10 lg:py-14">
         <div className="mx-auto w-full max-w-xl">
           <CheckoutEmbed planId={plan.id} />
-          <p className="text-muted-foreground mt-4 text-center text-[0.7rem]">
-            By continuing you agree to be charged once. You can request a
-            refund within 14 days if you haven&apos;t used any tokens.
-          </p>
         </div>
       </section>
     </main>
