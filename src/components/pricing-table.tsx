@@ -73,26 +73,14 @@ export function PricingTable({
     router.replace("/plans");
   }, [checkoutStatus, sessionId, router]);
 
-  async function handleContinue(plan: Plan) {
+  function handleContinue(plan: Plan) {
+    // Navigate to our own /checkout/[planId] page; the Stripe session is
+    // created there (via POST /api/checkout) and the form is mounted
+    // inline via <CheckoutEmbed>. setPendingPlan keeps the spinner on the
+    // tapped card during the navigation so the user gets immediate
+    // feedback even before the new page paints.
     setPendingPlan(plan.id);
-    try {
-      const res = await fetch("/api/checkout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ planId: plan.id }),
-      });
-      const data = await res.json().catch(() => null);
-      if (!res.ok || !data?.url) {
-        toast.error(data?.error ?? "Could not start checkout.");
-        setPendingPlan(null);
-        return;
-      }
-      // Hand off to Stripe's hosted checkout page.
-      window.location.assign(data.url);
-    } catch {
-      toast.error("Could not start checkout.");
-      setPendingPlan(null);
-    }
+    router.push(`/checkout/${plan.id}`);
   }
 
   return (
@@ -199,7 +187,7 @@ function PlanCard({
           {loading ? (
             <>
               <Loader2 className="animate-spin" />
-              Redirecting…
+              Opening checkout…
             </>
           ) : (
             <>
