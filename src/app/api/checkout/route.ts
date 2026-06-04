@@ -2,14 +2,14 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { formatValidity } from "@/lib/plans";
 import { getPlanById } from "@/lib/plans-repo";
-import { getSessionUserId } from "@/lib/repo";
+import { getSessionUser } from "@/lib/repo";
 import { getStripe, hasStripeKey } from "@/lib/stripe";
 
 const schema = z.object({ planId: z.string() });
 
 export async function POST(request: Request) {
-  const userId = await getSessionUserId();
-  if (!userId) {
+  const user = await getSessionUser();
+  if (!user) {
     return NextResponse.json({ error: "Sign in to continue." }, { status: 401 });
   }
 
@@ -37,9 +37,28 @@ export async function POST(request: Request) {
   const tokenCount = plan.tokens.toLocaleString("en-US");
 
   try {
+    // Embedded Checkout (ui_mode: "embedded") instead of the previous hosted
+    // redirect. The form mounts inside our own /checkout/[planId] page, so
+    // we own the surrounding chrome (brand panel on the left). The Stripe-
+    // managed payment form, PCI compliance, fraud signals, Link, Apple Pay
+    // and friends are unchanged.
     const session = await getStripe().checkout.sessions.create({
       mode: "payment",
+      // Stripe SDK v22's TS types only enumerate "_page"-suffixed variants
+      // ("embedded_page" / "hosted_page") even though the documented + live
+      // API values are "embedded" / "hosted" / "custom". Suppression keeps
+      // the runtime correct without inventing a fake type.
+      // @ts-expect-error -- see comment above
+      ui_mode: "embedded",
       payment_method_types: ["card"],
+      // Auto-detect German vs English (and beyond) from the user's browser —
+      // the embedded form re-renders text in their language.
+      locale: "auto",
+      // Pre-fill the email so the user doesn't re-type it.
+      customer_email: user.email,
+      // Collect billing address only when required for tax / regulation in
+      // the user's country (avoids a needless extra field for most users).
+      billing_address_collection: "auto",
       line_items: [
         {
           quantity: 1,
@@ -53,20 +72,26 @@ export async function POST(request: Request) {
           },
         },
       ],
-      client_reference_id: userId,
+      client_reference_id: user.id,
       // The webhook + success confirmation read these back to credit the tokens.
-      metadata: { userId, planId: plan.id },
-      success_url: `${origin}/plans?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${origin}/plans?checkout=cancel`,
+      metadata: { userId: user.id, planId: plan.id },
+      // Embedded Checkout uses a single `return_url` (no cancel_url). After
+      // payment completes (or the user closes the embed) Stripe redirects
+      // here. The existing PricingTable redirect handler picks up
+      // `?checkout=success&session_id=…` and runs /api/checkout/confirm.
+      return_url: `${origin}/plans?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
     });
 
-    if (!session.url) {
+    if (!session.client_secret) {
       return NextResponse.json(
-        { error: "Stripe did not return a checkout URL." },
+        { error: "Stripe did not return a client secret." },
         { status: 502 },
       );
     }
-    return NextResponse.json({ url: session.url });
+    return NextResponse.json({
+      clientSecret: session.client_secret,
+      sessionId: session.id,
+    });
   } catch (err) {
     console.error("Stripe checkout session creation failed:", err);
     return NextResponse.json(
