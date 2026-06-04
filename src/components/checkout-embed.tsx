@@ -8,6 +8,7 @@ import { loadStripe, type Stripe } from "@stripe/stripe-js";
 import { Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 
 // Stripe's loadStripe() returns a Promise<Stripe | null>. Cache it at module
 // scope so we don't re-load the SDK on every component mount — Stripe's docs
@@ -85,28 +86,58 @@ export function CheckoutEmbed({ planId }: { planId: string }) {
   }
 
   if (!clientSecret) {
-    // Skeleton that roughly matches the embed's eventual footprint so the
-    // page doesn't jump when the form mounts.
+    // Skeleton that matches the embed's eventual chrome (same border,
+    // shadow, accent strip) so the visual doesn't jolt at the swap.
     return (
-      <div className="border-border/60 bg-card flex h-[640px] items-center justify-center rounded-2xl border">
-        <div className="text-muted-foreground flex items-center gap-2 text-sm">
-          <Loader2 className="size-4 animate-spin" aria-hidden />
-          Preparing secure checkout…
+      <div
+        className={cn(
+          "relative overflow-hidden rounded-2xl",
+          "border border-[#1A1233]/8 dark:border-white/8",
+          "bg-card",
+          "shadow-[0_1px_2px_rgba(26,18,51,0.04),0_12px_28px_-16px_rgba(26,18,51,0.16)]",
+          "dark:shadow-[0_1px_2px_rgba(0,0,0,0.25),0_12px_28px_-16px_rgba(0,0,0,0.6)]",
+        )}
+      >
+        <div aria-hidden className="bg-accent h-[2px] w-full" />
+        <div className="flex h-[600px] items-center justify-center">
+          <div className="text-muted-foreground flex items-center gap-2 text-sm">
+            <Loader2 className="size-4 animate-spin" aria-hidden />
+            Preparing secure checkout…
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    // The Stripe iframe renders its own white card with internal padding —
-    // generous horizontally, tight vertically. We can't reach into the
-    // iframe to change Stripe's internal layout, but wrapping with our own
-    // matching white card + balanced padding pushes the iframe inward so
-    // the form gets the same breathing room on every side.
-    <div className="bg-card border-border/60 overflow-hidden rounded-2xl border px-4 py-6 sm:px-6 sm:py-8">
-      <EmbeddedCheckoutProvider stripe={getStripe()} options={{ clientSecret }}>
-        <EmbeddedCheckout />
-      </EmbeddedCheckoutProvider>
+    // Editorial payment surface (Atelier voice). Restrained but intentional:
+    //  · Hairline border at Ink 8% (light) / white 8% (dark) — visible
+    //    enough to define the card edge but not the generic shadcn grey.
+    //  · Two-layer shadow: tight 1px inset for definition + a soft 24-32px
+    //    halo for natural elevation. Both Ink-tinted to keep on-brand.
+    //  · Single 2px accent strip at the top edge — chartreuse in light,
+    //    lavender in dark (the Atelier accent flips per theme). One small
+    //    brand mark distinguishes the card from "default template".
+    //  · Inner padding stays light-horizontal / generous-vertical so the
+    //    Stripe iframe gets full width and balanced breathing room.
+    <div
+      className={cn(
+        "relative overflow-hidden rounded-2xl",
+        "border border-[#1A1233]/8 dark:border-white/8",
+        "bg-card",
+        "shadow-[0_1px_2px_rgba(26,18,51,0.04),0_12px_28px_-16px_rgba(26,18,51,0.16)]",
+        "dark:shadow-[0_1px_2px_rgba(0,0,0,0.25),0_12px_28px_-16px_rgba(0,0,0,0.6)]",
+      )}
+    >
+      {/* Editorial accent strip — single brand mark on an otherwise austere
+          surface. 2px tall, full-bleed top edge, uses --accent so light mode
+          shows chartreuse and dark mode shows lavender. */}
+      <div aria-hidden className="bg-accent h-[2px] w-full" />
+      <div className="px-4 py-6 sm:px-6 sm:py-8">
+        <EmbeddedCheckoutProvider stripe={getStripe()} options={{ clientSecret }}>
+          <EmbeddedCheckout />
+        </EmbeddedCheckoutProvider>
+      </div>
     </div>
   );
 }
