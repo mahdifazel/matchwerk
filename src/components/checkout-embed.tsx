@@ -99,8 +99,14 @@ export function CheckoutEmbed({ planId }: { planId: string }) {
         )}
       >
         <div aria-hidden className="bg-accent h-[2px] w-full" />
-        <div className="flex h-[600px] items-center justify-center">
-          <div className="text-muted-foreground flex items-center gap-2 text-sm">
+        {/* Match the loaded-state's white-pinned interior so the visual
+            doesn't jolt at the swap. Text pinned to a dark muted tone
+            (Ink at 60%) so it reads against white in both themes. */}
+        <div
+          className="flex h-[600px] items-center justify-center bg-white"
+          style={{ color: "rgba(26, 18, 51, 0.60)" }}
+        >
+          <div className="flex items-center gap-2 text-sm">
             <Loader2 className="size-4 animate-spin" aria-hidden />
             Preparing secure checkout…
           </div>
@@ -133,7 +139,14 @@ export function CheckoutEmbed({ planId }: { planId: string }) {
           surface. 2px tall, full-bleed top edge, uses --accent so light mode
           shows chartreuse and dark mode shows lavender. */}
       <div aria-hidden className="bg-accent h-[2px] w-full" />
-      <div className="px-4 py-6 sm:px-6 sm:py-8">
+      {/* Inner content area is pinned white in both themes — the Stripe
+          iframe inside is always white (Stripe doesn't theme its
+          embedded form), so matching the surrounding padding to white
+          avoids a dark "frame" around the iframe in dark mode. The outer
+          card's chrome (border, shadow, accent strip) still flips with
+          theme, so the card reads as theme-aware while the payment
+          surface itself stays consistent. */}
+      <div className="bg-white px-4 py-6 sm:px-6 sm:py-8">
         <EmbeddedCheckoutProvider stripe={getStripe()} options={{ clientSecret }}>
           <EmbeddedCheckout />
         </EmbeddedCheckoutProvider>
