@@ -2,7 +2,7 @@ import { ArrowLeft, Apple, Coins, CreditCard, Lock, ShieldCheck } from "lucide-r
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { CheckoutEmbed } from "@/components/checkout-embed";
-import { formatEur, formatValidity } from "@/lib/plans";
+import { formatEur } from "@/lib/plans";
 import { getPlanById } from "@/lib/plans-repo";
 import { getSessionUser } from "@/lib/repo";
 import { TOKEN } from "@/lib/tokens";
@@ -39,10 +39,10 @@ export default async function CheckoutPage({
   // /plans page only lists active plans, so casual discovery is gated.
   if (!plan) notFound();
 
-  // Concrete usage anchors, derived from the canonical TOKEN prices so they
-  // stay in sync if pricing changes. Per-job we use display+rating combined
-  // (~1.5 tokens per fully-rated job at typical use).
-  const cvUploads = Math.floor(plan.tokens / TOKEN.CV_PARSE);
+  // Concrete usage anchor — how many jobs the user can have fully matched
+  // against their CV with this many tokens. Derived from the canonical
+  // TOKEN prices so it stays in sync if pricing changes (~1.5 tokens per
+  // fully-rated job at typical use: 0.5 to surface + 1 to score).
   const fullyRatedJobs = Math.floor(plan.tokens / (TOKEN.PER_JOB_DISPLAY + TOKEN.PER_JOB_RATING));
 
   return (
@@ -142,10 +142,11 @@ export default async function CheckoutPage({
               className="mt-1.5 text-xs"
               style={{ color: "rgba(26, 18, 51, 0.60)" }}
             >
-              Valid for {formatValidity(plan.durationMonths)}. Roughly{" "}
-              <strong className="font-semibold">{cvUploads.toLocaleString("en-US")} CV uploads</strong>{" "}
-              <span style={{ color: "rgba(26, 18, 51, 0.40)" }}>·</span>{" "}
-              <strong className="font-semibold">{fullyRatedJobs.toLocaleString("en-US")} jobs</strong>{" "}
+              Valid for {plan.durationMonths} month
+              {plan.durationMonths === 1 ? "" : "s"}. Roughly{" "}
+              <strong className="font-semibold">
+                {fullyRatedJobs.toLocaleString("en-US")} jobs
+              </strong>{" "}
               fully matched against your CV.
             </p>
           </div>
