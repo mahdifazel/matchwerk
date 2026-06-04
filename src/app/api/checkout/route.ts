@@ -50,7 +50,15 @@ export async function POST(request: Request) {
       // show the old names, but the live API for this version requires the
       // `_page` suffix.
       ui_mode: "embedded_page",
-      payment_method_types: ["card"],
+      // No `payment_method_types` — for Checkout Sessions (unlike Payment
+      // Intents), omitting the list tells Stripe to present whichever
+      // methods are enabled in your Stripe Dashboard. By default that's
+      // Cards + Link + Apple Pay (Safari/iOS/macOS) + Google Pay
+      // (Chrome/Android). Anything else you enable in Stripe Dashboard
+      // → Settings → Payment methods (SEPA, Klarna, Sofort, iDEAL, …)
+      // gets added automatically for users in supported regions. Apple
+      // Pay needs no domain verification — Stripe handles it for
+      // hosted+embedded checkout.
       // Auto-detect German vs English (and beyond) from the user's browser —
       // the embedded form re-renders text in their language.
       locale: "auto",

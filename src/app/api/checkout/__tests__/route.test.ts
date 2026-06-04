@@ -80,6 +80,11 @@ describe("POST /api/checkout", () => {
     expect(arg.customer_email).toBe("u1@example.com");
     expect(arg.locale).toBe("auto");
     expect(arg.billing_address_collection).toBe("auto");
+    // No payment_method_types — for Checkout Sessions, omitting the list
+    // lets Stripe present whichever methods are enabled in the dashboard
+    // (cards + Link + Apple/Google Pay by default, plus EU methods if
+    // enabled).
+    expect(arg.payment_method_types).toBeUndefined();
     // Embedded mode uses return_url (no success_url / cancel_url).
     expect(arg.return_url).toContain("/plans?checkout=success");
     expect(arg.return_url).toContain("{CHECKOUT_SESSION_ID}");
