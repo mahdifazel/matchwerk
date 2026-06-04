@@ -98,7 +98,12 @@ export function CheckoutEmbed({ planId }: { planId: string }) {
   }
 
   return (
-    <div className="overflow-hidden rounded-2xl">
+    // The Stripe iframe renders its own white card with internal padding —
+    // generous horizontally, tight vertically. We can't reach into the
+    // iframe to change Stripe's internal layout, but wrapping with our own
+    // matching white card + balanced padding pushes the iframe inward so
+    // the form gets the same breathing room on every side.
+    <div className="bg-card border-border/60 overflow-hidden rounded-2xl border px-4 py-6 sm:px-6 sm:py-8">
       <EmbeddedCheckoutProvider stripe={getStripe()} options={{ clientSecret }}>
         <EmbeddedCheckout />
       </EmbeddedCheckoutProvider>
