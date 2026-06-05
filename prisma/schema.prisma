@@ -15,7 +15,7 @@ enum JobSourceId {
   BA_JOBBOERSE
   JSEARCH
   ADZUNA
-  JOBSPY
+  JOBSPY // legacy — scraping fallback (python-jobspy) removed; kept for historical rows
   FANTASTIC_JOBS
   JOOBLE
   // Legacy values kept so historical rows stay valid; no longer surfaced in the UI.

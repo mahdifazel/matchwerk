@@ -14,7 +14,7 @@ export type SourceCredentialSchema = {
 /**
  * The only place that knows what fields each source needs. Client-safe (no
  * Prisma or process.env). Sources NOT listed here have no editable
- * credential (BA Jobbörse: public API; JobSpy: no remote API).
+ * credential (e.g. BA Jobbörse: public API, no key).
  */
 export const SOURCE_CREDENTIAL_SCHEMA: Partial<
   Record<JobSourceId, SourceCredentialSchema>

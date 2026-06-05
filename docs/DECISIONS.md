@@ -83,7 +83,7 @@ system: [
 
 **Decision.** `PRIMARY_SUFFICIENT_THRESHOLD = 10`. If the primary tier returns ≥ 10 jobs, backups are skipped.
 
-**Why.** Adzuna and JobSpy exist to plug gaps. When BA + JSearch + Fantastic.jobs already return dozens of listings, querying Adzuna adds cost (Adzuna quota / JobSpy scraping risk) for marginal extra signal — most of which would dedupe away anyway. 10 is small enough to trip when one or two primaries are misbehaving but large enough that a normal day doesn't tax the backups.
+**Why.** Adzuna and Jooble exist to plug gaps. When BA + JSearch + Fantastic.jobs already return dozens of listings, querying the backups adds cost (extra API quota) for marginal extra signal — most of which would dedupe away anyway. 10 is small enough to trip when one or two primaries are misbehaving but large enough that a normal day doesn't tax the backups.
 
 **Tradeoff.** With a CV scoped to a narrow city (e.g. "Berlin only, contract only"), 10 results from primary tier might mean you're missing valuable backup hits. If this matters in practice, lift the threshold or move Adzuna to `primary` tier.
 
@@ -120,13 +120,9 @@ A full pairwise similarity sweep across all `RawJob`s would be O(n²) — runnin
 
 ---
 
-## 11. JobSpy as a Python sidecar
+## 11. JobSpy as a Python sidecar — *removed*
 
-**Decision.** JobSpy runs in a project-local Python venv (`.venv-jobspy/`) spawned via `child_process.spawn` from `src/lib/sources/jobspy.ts`. A bridge script (`scripts/jobspy_bridge.py`) reads JSON from argv, returns JSON on stdout.
-
-**Why.** `python-jobspy` is Python-only and there's no maintained Node port. A Python sidecar is honest about the tradeoff: scraping is slow and fragile, so it's quarantined to its own process where a timeout (`setTimeout(120_000) → SIGKILL`) and silenced errors can't take down the rest of the refresh.
-
-**Why a venv instead of a global install.** Reproducibility and to keep the Python deps off the system Python. The README documents the one-time bootstrap (`python3.12 -m venv .venv-jobspy && .venv-jobspy/bin/pip install python-jobspy`).
+**Superseded.** JobSpy (the open-source scraping fallback) ran in a project-local Python venv spawned via `child_process.spawn`. It couldn't run on serverless hosts (no Python runtime), added a slow/fragile scraping path, and the API sources (BA + JSearch + Fantastic.jobs + Adzuna + Jooble) cover the need. The adapter, the Python bridge, and the venv have been **deleted**; the `JOBSPY` enum value is kept only so historical `Job` rows stay valid. The tiered orchestrator now runs primary → backup with no fallback tier.
 
 ---
 
@@ -205,11 +201,9 @@ The same logic applies to `jobType`. For `source`, no UNKNOWN passes because eve
 
 ---
 
-## 19. JobSpy default sites: Indeed + Glassdoor only
+## 19. JobSpy default sites — *removed*
 
-**Decision.** `DEFAULT_SITES = ["indeed", "glassdoor"]`. LinkedIn is left out unless the user explicitly opts in via `JOBSPY_SITES=indeed,glassdoor,linkedin`.
-
-**Why.** LinkedIn aggressively blocks scrapers. Including it in the default site list tends to break entire JobSpy runs (the whole batch fails when LinkedIn 429s), even though the other sites would have succeeded. Indeed and Glassdoor are politer.
+**Superseded.** JobSpy has been removed (see #11), so its site-selection decision no longer applies.
 
 ---
 
@@ -311,7 +305,7 @@ The same logic applies to `jobType`. For `source`, no UNKNOWN passes because eve
 
 **Why single-select.** "Past 24 hours" is a strict subset of "past week" — multi-select would create nonsense states (Past 24h *and* Past week selected together).
 
-**Why the `fetchedAt` fallback.** Aggregator sources (especially JSearch and JobSpy) often leave `publishedAt` null. A naive `publishedAt >= cutoff` would silently filter out genuinely-fresh listings just because the source didn't fill the field. Falling back to `fetchedAt` preserves the user's mental model of "show me what's been on the board recently".
+**Why the `fetchedAt` fallback.** Aggregator sources (especially JSearch) often leave `publishedAt` null. A naive `publishedAt >= cutoff` would silently filter out genuinely-fresh listings just because the source didn't fill the field. Falling back to `fetchedAt` preserves the user's mental model of "show me what's been on the board recently".
 
 ---
 

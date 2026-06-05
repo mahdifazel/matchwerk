@@ -33,7 +33,7 @@ export interface JobSource {
   id: JobSourceId;
   label: string;
   tier: SourceTier;
-  /** False for sources without a working adapter (e.g. JobSpy). */
+  /** False for sources without a working adapter. */
   connected: boolean;
   /** True when required credentials are present — global platform key or env fallback. */
   configured(): Promise<boolean>;

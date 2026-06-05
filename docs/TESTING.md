@@ -54,7 +54,7 @@ The endpoints below cover the user-visible critical paths. Run them after non-tr
 curl -s http://localhost:3000/api/sources | python3 -m json.tool
 ```
 
-Expected: array of 5 objects (`BA_JOBBOERSE`, `JSEARCH`, `FANTASTIC_JOBS`, `ADZUNA`, `JOBSPY`) each with `connected` and `configured` booleans.
+Expected: array of 5 objects (`BA_JOBBOERSE`, `JSEARCH`, `FANTASTIC_JOBS`, `ADZUNA`, `JOOBLE`) each with `connected` and `configured` booleans.
 
 **2. Settings round-trip**
 

@@ -7,6 +7,15 @@ All notable changes to this project are documented here. Format follows [Keep a 
 Multi-tenancy with Auth.js, an in-app token economy, **Stripe payments**, a
 **multi-provider AI layer (Claude + Gemini)**, and a full **admin backoffice**.
 
+### Removed — JobSpy scraping fallback
+
+- **JobSpy is gone.** Deleted the adapter (`src/lib/sources/jobspy.ts`), the Python bridge (`scripts/jobspy_bridge.py`), the `.venv-jobspy/` gitignore entry, the `JOBSPY_SITES` env var, and every doc reference. It couldn't run on serverless hosts (no Python runtime) and the API sources (BA + JSearch + Fantastic.jobs + Adzuna + Jooble) cover the need. The tiered orchestrator now runs **primary → backup** with no fallback tier.
+- The `JOBSPY` value on the `JobSourceId` enum is **kept as legacy** (alongside `INDEED`/`LINKEDIN`/…) so historical `Job` rows stay valid — no migration, no data loss. It's never surfaced in the UI.
+
+### Fixed — first-research timeout
+
+- `POST /api/jobs/refresh` no longer 504s on the first (heaviest) run. Scoring now respects a wall-clock budget (`REFRESH_BUDGET_MS`, default 45 s) and persists only what it scored; `maxDuration` raised to 300 (clamped by plan); each AI batch bounded to 20 s / 1 retry; all source fetches now time out at 12 s via a new `src/lib/sources/http.ts` helper.
+
 ### Added — Stripe payments & plans
 
 - **Token purchases via Stripe Checkout** (sandbox/test mode). `/plans` pricing page → `POST /api/checkout` creates a hosted Checkout Session per plan → redirect → `POST /api/checkout/confirm` (idempotent crediting on return) and `POST /api/stripe/webhook` (authoritative). `src/lib/stripe.ts` refuses any non-`sk_test_` key.

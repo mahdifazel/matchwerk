@@ -13,7 +13,6 @@ Prerequisites:
 - Node.js ≥ 20, npm
 - Docker (for Postgres 16)
 - An Anthropic API key
-- Python 3.10+ if you want to touch the JobSpy adapter (`brew install python@3.12` on macOS)
 
 Bootstrap:
 
@@ -36,14 +35,6 @@ curl -s http://localhost:3000/api/sources   # → {"error":"Sign in to continue.
 ```
 
 Sign in at `/register` (or `/login` → Google), then hit `/api/sources` from the browser — every source should appear with `connected: true | false` and `configured: true | false`.
-
-To rebuild the JobSpy venv:
-
-```bash
-rm -rf .venv-jobspy
-python3.12 -m venv .venv-jobspy
-.venv-jobspy/bin/pip install python-jobspy
-```
 
 ---
 
@@ -199,7 +190,7 @@ When touching UI:
 ## What we won't accept
 
 - **Mock or fake job data.** This is a hard project rule (`CLAUDE.md` § 1).
-- **Direct scraping of LinkedIn / Glassdoor / XING / Indeed / StepStone / Monster** from inside the Next.js process. Use a paid aggregator API (JSearch, Fantastic.jobs, Adzuna) or the open-source JobSpy fallback in its sandboxed venv.
+- **Direct scraping of LinkedIn / Glassdoor / XING / Indeed / StepStone / Monster** from inside the Next.js process. Use a paid aggregator API (JSearch, Fantastic.jobs, Adzuna, Jooble).
 - **Unscoped queries.** Every data read/write must scope by `getSessionUserId()` (API) and live behind `src/proxy.ts` (pages). An unscoped Prisma query is a cross-tenant data leak — see `CLAUDE.md` § 9 and `docs/DECISIONS.md` #1.
 - **A payment provider / hard paywall** bolted on without discussion. Tokens (`src/lib/tokens.ts`) meter AI cost and accrue debt rather than blocking; turning that into a gate is a product decision, not a drive-by change.
 - **PRs without a typecheck-clean diff.** No exceptions.
