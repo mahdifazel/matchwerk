@@ -380,6 +380,72 @@ POST /api/contact ─────►   checkContactMessage(uid)
 
 **Reply flow.** Admin clicks "Reply via email" → mailto: opens their default email client with `Re: <subject>` + the original body quoted; the click also marks the message replied as a side-effect, so the inbox status reflects intent without requiring a follow-up click.
 
+### 3.6 Payments — Stripe Embedded Checkout
+
+```
+User clicks plan on /plans
+   │
+   ▼
+router.push(`/checkout/${plan.id}`)         ── PricingTable navigates,
+                                               no fetch from /plans itself
+   │
+   ▼
+/checkout/[planId] (server component)        ── auth-gated; resolves plan
+   │ left column: bg-secondary merchant
+   │   panel (brand lockup, plan name,
+   │   price, usage anchor, trust band)
+   │ right column: <CheckoutEmbed planId=…/>
+   │
+   ▼
+<CheckoutEmbed> on mount → POST /api/checkout
+   │ {planId}
+   ▼
+sessions.create({                            ── server-side, plan price
+  ui_mode: "embedded_page",                     never trusted from client
+  customer_email,                            ── prefilled from session user
+  locale: "auto",                            ── auto-DE/EN detection
+  billing_address_collection: "auto",        ── EU tax / regulation only
+  // no payment_method_types → Stripe Dashboard's
+  // enabled methods (Cards, Link, Apple Pay,
+  // Google Pay, optionally SEPA / Klarna / …)
+  return_url: …/plans?checkout=success&session_id={CHECKOUT_SESSION_ID},
+  metadata: { userId, planId },
+})
+   │ { clientSecret, sessionId }
+   ▼
+<EmbeddedCheckoutProvider stripe={loadStripe(pk)} options={{ clientSecret }}>
+  <EmbeddedCheckout />
+</EmbeddedCheckoutProvider>
+   │ payment happens inside the iframe
+   │ (PCI compliance, fraud signals,
+   │ Apple/Google Pay device detection,
+   │ Link auto-detect — all Stripe-managed)
+   ▼
+Stripe redirects → /plans?checkout=success&session_id=…
+   │
+   ▼
+PricingTable's existing redirect handler   ── identical to the
+fires POST /api/checkout/confirm              previous hosted-redirect
+   │ +                                        flow; same idempotency
+POST /api/stripe/webhook (authoritative)      via TokenLedger.stripeSessionId
+   │
+   ▼
+creditCheckoutSession(userId, planId,        ── one-shot ledger row
+  stripeSessionId)
+   │
+   ▼
+toast.success(`Added N tokens.`)
+notifyTokensUpdated() → header pill refreshes
+```
+
+**Why Embedded over Hosted.** Stripe Embedded keeps every safety net of Stripe Checkout (PCI, fraud, all payment methods, automatic 3DS) while letting us own the surrounding chrome. We render our merchant panel in the Atelier voice (Fraunces, theme-aware Sand/plum surface, brand lockup, usage anchor, trust band) and the user never leaves `matchwerk.app`. See DECISIONS #45.
+
+**Theme handling.** The merchant panel uses Atelier semantic tokens (`bg-secondary`, `text-foreground`, `bg-primary`/`bg-accent` for the logomark) — fully theme-aware. The Stripe iframe is always white internally (Stripe Embedded doesn't ship a dark theme), so the inner padding area inside `<CheckoutEmbed>` is **pinned to `bg-white` in both modes** to visually merge with the iframe; the outer card chrome (border, layered shadow, 2px `bg-accent` top strip) stays theme-aware.
+
+**API version note.** Stripe API `2026-04-22.dahlia` (the default for Stripe SDK v22+) renamed `ui_mode` values: `embedded` → `embedded_page`, `hosted` → `hosted_page`. The runtime rejects the older names; the create call uses the new ones.
+
+**Env requirement.** `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` must be set in `.env.local` (dev) **and Vercel's Production env vars** (prod). Without it, `<CheckoutEmbed>` shows a clear inline error instead of failing silently inside Stripe's SDK.
+
 ---
 
 ## 4. Source adapter pattern

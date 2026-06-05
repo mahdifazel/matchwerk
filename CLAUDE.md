@@ -75,6 +75,7 @@ Job_Hunter/
     │   ├── plans/page.tsx      # Token purchase plans → Stripe Checkout
     │   ├── admin/              # Role-gated backoffice: layout + dashboard, users/[id], plans, system, health, announcements, webhooks, roles, messages, messages/[id]
     │   ├── contact/page.tsx    # Logged-in feedback channel
+    │   ├── checkout/[planId]/page.tsx  # Embedded Checkout: custom merchant panel + Stripe form mounted inline
     │   └── api/
     │       ├── auth/[...nextauth]/route.ts          # Auth.js handlers (signin/callback/signout)
     │       ├── register/route.ts                    # POST email/password registration (+ claim orphans, signup grant)
@@ -99,7 +100,8 @@ Job_Hunter/
     │   ├── announcement-banner.tsx, impersonation-banner.tsx
     │   ├── auth/                   # auth-shell.tsx (split-screen layout), auth-illustration.tsx (interactive eye SVG), google-button.tsx
     │   ├── account-form.tsx        # Account form (name, password, balance, Buy tokens, GDPR export/delete)
-    │   ├── pricing-table.tsx       # /plans cards → Stripe checkout
+    │   ├── pricing-table.tsx       # /plans cards → routes to /checkout/[planId]
+    │   ├── checkout-embed.tsx      # Stripe Embedded Checkout wrapper (loadStripe + EmbeddedCheckoutProvider)
     │   ├── job-board.tsx, job-card.tsx, match-badge.tsx (exports ScoreMeter)
     │   ├── filter-bar.tsx, refresh-button.tsx, empty-state.tsx
     │   ├── cv-upload.tsx           # Drag-and-drop + inline profile editor
@@ -217,10 +219,13 @@ Order: starred/inbox sort by `matchScore DESC, fetchedAt DESC`; applied sorts by
 - Managed in **Admin → System Settings → Job sources** (`/api/admin/system/sources` + `[id]`): set/clear keys, and a per-source **global enable/disable** (`AppSetting "sources_disabled"`, surfaced via `getEnabledSourceIds`).
 - `GET /api/sources` still reports `{ id, label, tier, connected, configured, editable, credentialSource }` (used by the board's filter bar). The per-user `/api/sources/[id]/credentials` route + client editor were removed; the per-user `SourceCredential` model is legacy/unused.
 
-### Payments (Stripe — test by default, live behind an opt-in)
-- `/plans` lists DB-backed `Plan`s. `POST /api/checkout` creates a hosted Stripe Checkout Session (price/tokens from the server's `Plan`, never the client) with `metadata { userId, planId }`. On return, `POST /api/checkout/confirm` verifies the session and credits; `POST /api/stripe/webhook` is the authoritative path. Both call `creditCheckoutSession` (idempotent via the unique `TokenLedger.stripeSessionId`).
+### Payments (Stripe — Embedded Checkout, test by default, live behind an opt-in)
+- `/plans` lists DB-backed `Plan`s. Click a plan → `/checkout/[planId]` (server component, auth-gated) — our own page with a custom merchant panel on the left (brand lockup, plan summary, usage anchor, trust band) and **Stripe Embedded Checkout** mounted on the right via `<CheckoutEmbed>` (`src/components/checkout-embed.tsx`). The user never leaves `matchwerk.app`.
+- **Session creation**: `POST /api/checkout` runs `stripe.checkout.sessions.create({ ui_mode: "embedded_page", customer_email, locale: "auto", billing_address_collection: "auto", return_url, metadata: { userId, planId } })` and returns `{ clientSecret, sessionId }` to the embed. (API version `2026-04-22.dahlia` — the SDK v22 default — renamed `ui_mode` values: `embedded` → `embedded_page`, `hosted` → `hosted_page`.) No hard-coded `payment_method_types`; Stripe presents whichever methods are enabled in Dashboard (Cards + Link + Apple Pay + Google Pay by default; SEPA / Klarna / Sofort / iDEAL / Bancontact opt-in).
+- **Confirmation**: when the embed finishes, Stripe redirects to `return_url = /plans?checkout=success&session_id=…`. The `PricingTable` redirect handler picks this up and calls `POST /api/checkout/confirm`. The authoritative path is still the webhook (`POST /api/stripe/webhook`); both call `creditCheckoutSession` (idempotent via the unique `TokenLedger.stripeSessionId`).
 - **Refunds** (`/api/admin/users/[id]/refund`): retrieves the session's `payment_intent`, `stripe.refunds.create` (idempotency key), then `reverseCheckoutTokens` (deducts; overspend → debt).
 - **Mode guard** (`src/lib/stripe.ts`): `sk_test_…` keys always work. A live key (`sk_live_…`) is accepted **only when `STRIPE_ALLOW_LIVE=true`** — otherwise `getStripe()` throws, so real charges can't happen by accident. `getStripeMode()` returns `"test" | "live" | "off"`. Verified webhook events are recorded to `WebhookEvent` (Admin → Stripe Events). Live mode also needs an activated Stripe account + a live webhook endpoint; VAT/tax/terms are out of scope of the code.
+- **Card chrome on `/checkout/[planId]`**: hairline Ink/8% border + two-layer Ink-tinted shadow + 2px `bg-accent` strip at the top of the embed wrapper (chartreuse light, lavender dark — Atelier accent flips by theme). The **inner padding area is pinned to `bg-white`** in both themes so it visually merges with the Stripe iframe (which is always white internally — Stripe Embedded Checkout doesn't support a dark theme). The merchant panel is `bg-secondary` (Sand light / muted plum dark) — theme-aware.
 
 ### AI providers (`src/lib/ai/*`)
 - `runWithAi(fn, op?)` tries the **active** provider then the **fallback chain** (enabled + configured only), logging each attempt to `RequestLog`. Providers (`claude`, `gemini`) implement `parseCvProfile`, `scoreBatch`, `ping` + `isConfigured`.
@@ -339,6 +344,7 @@ npm run dev   # http://localhost:3000
 | `SUPER_ADMIN_EMAILS` | `src/auth.ts` | Optional, comma-separated. Emails promoted to `SUPER_ADMIN` on sign-in — bootstraps admin access. |
 | `GEMINI_API_KEY` | Gemini provider (`src/lib/ai/gemini.ts`) | Optional. Enables the Gemini Flash provider (switch/fallback in admin). Fallback for the admin-stored key. |
 | `STRIPE_SECRET_KEY` | `src/lib/stripe.ts` | Optional. `sk_test_…` works as-is; `sk_live_…` is accepted **only with `STRIPE_ALLOW_LIVE=true`**. Enables token purchases. |
+| `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | `src/components/checkout-embed.tsx` | **Required** when payments are enabled. `pk_test_…` for dev, `pk_live_…` for prod. Used on the client to mount Stripe Embedded Checkout on `/checkout/[planId]`. Stripe Dashboard → Developers → API keys. Without it, the embed renders an inline error and Stripe can't load. |
 | `STRIPE_ALLOW_LIVE` | `src/lib/stripe.ts` | Optional. `"true"` opts into real charges with a live key — required for live mode, prevents accidental live use otherwise. |
 | `STRIPE_WEBHOOK_SECRET` | `/api/stripe/webhook` | Optional, `whsec_…` from `stripe listen` (test) or a live webhook endpoint. The success redirect also credits without it. |
 | `AUTH_GOOGLE_ID` + `AUTH_GOOGLE_SECRET` | Google provider | Google OAuth client (Cloud Console → Credentials → OAuth client ID, "Web application"). Redirect URI: `http://localhost:3000/api/auth/callback/google`. Optional — email/password registration works without it. |
