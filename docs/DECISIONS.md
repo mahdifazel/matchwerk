@@ -482,3 +482,25 @@ The same logic applies to `jobType`. For `source`, no UNKNOWN passes because eve
 **Destination via AppSetting, not env-only.** `AppSetting("contact_to")` is read first, with env `CONTACT_TO` as a fallback. Same pattern as the AI keys — admin can edit it in `/admin/system` without a redeploy.
 
 **Delete carries an audit trail.** `DELETE /api/admin/messages/[id]` writes `contact_message_delete` to `AdminAuditLog` capturing the sender's email, the subject, and the last-known status. The body itself is unrecoverable after delete, but the metadata survives.
+
+---
+
+## 45. Stripe Embedded Checkout, not Hosted redirect
+
+**Decision.** The Stripe integration on `/plans` → `/checkout/[planId]` uses **Stripe Embedded Checkout** (`ui_mode: "embedded_page"`) — the form is mounted inside our own `/checkout/[planId]` page via `<EmbeddedCheckoutProvider>` from `@stripe/react-stripe-js`. The user never leaves `matchwerk.app`. Stripe still manages the actual payment form (PCI, fraud, payment methods, 3DS); we own the surrounding page.
+
+**Why not Stripe Hosted Checkout (the previous redirect).** The hosted page renders Stripe's typography and layout for the entire merchant info panel. The only ways to influence it were richer `product_data` (a single name + description string) and Dashboard branding (logo + accent color) — both nibbled at the edges. Neither gave us editorial design control. For a brand-anchored product (the Atelier voice — Fraunces, Paper, Ink, chartreuse accent, italic taglines), hosted redirect read as "startup-y with a Stripe page tacked on the end." Embedded fixes that without touching the safety net.
+
+**Why not fully-custom Stripe Elements / Payment Element.** Elements would mean we own every input (Card Element, Address Element, etc.) and the corresponding validation + state machine. Significantly more code, ongoing PCI considerations even with Stripe Elements, and we'd lose Stripe's own optimizations (Link one-click, Apple Pay button placement, regional method ordering). Embedded Checkout is the right point on the customization vs effort curve — full layout control on our side of the line, zero new responsibilities on Stripe's side.
+
+**Why no `payment_method_types`.** For Checkout Sessions (unlike PaymentIntents), omitting the list tells Stripe to present whichever methods are enabled in our Stripe Dashboard. By default that includes Cards + Link + Apple Pay + Google Pay (no Dashboard changes required). EU methods (SEPA, Klarna, Sofort, iDEAL, Bancontact) are a Dashboard toggle. This lets us turn on local methods later without a code change.
+
+**Why `customer_email` + `locale: "auto"` + `billing_address_collection: "auto"`.** Three small lines that visibly upgrade the right side: the email is prefilled from the session user (one less keystroke), the locale auto-detects DE / EN from the browser (German users see German UI), and the billing address only collects when the user's country requires it for tax / regulation (the form stays lean for most users).
+
+**API version note.** Stripe SDK v22 targets API `2026-04-22.dahlia` by default. In that version Stripe renamed `ui_mode` values: `embedded` → `embedded_page`, `hosted` → `hosted_page`. Most of Stripe's public docs still show the old names (they document a mix of API versions); the SDK type union is the authoritative reference. Code uses the new names.
+
+**Theming.** The embed iframe is always white internally (Stripe Embedded doesn't ship a dark theme — see Stripe docs). The merchant panel and card chrome are fully theme-aware (Atelier `bg-secondary` / `bg-card` + `bg-accent` for the top strip — the accent flips chartreuse ↔ lavender per theme). The **inner padding area around the iframe is pinned to `bg-white` in both modes** so the iframe and its padding read as one continuous white surface; otherwise dark-mode users would see a dark ring around a white iframe.
+
+**Same idempotency contract.** The webhook + `/api/checkout/confirm` flow is unchanged — both still call `creditCheckoutSession` keyed on the unique `TokenLedger.stripeSessionId`. Embedded vs hosted is purely a rendering choice; the credit / refund machinery is identical.
+
+**Required env.** `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` (a `pk_test_…` or `pk_live_…`) must be set client-side so `loadStripe()` can initialize the SDK. Without it the embed renders a clear inline error instead of silently failing. The server-side `STRIPE_SECRET_KEY` (already required for hosted mode) still applies.
