@@ -155,7 +155,7 @@ export function BoardCta() {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-muted-foreground text-xs tabular-nums">
             {ready
-              ? "Both steps complete — you're good to go."
+              ? "Both steps complete, you're good to go."
               : `${completed} of ${checklist.length} steps done`}
           </p>
           {ready ? (
