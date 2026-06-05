@@ -15,10 +15,20 @@ import { searchEnabledSources } from "@/lib/sources";
 import { dedupeRawJobs } from "@/lib/sources/dedupe";
 import { isLikelySameJob } from "@/lib/sources/similarity";
 
-// Fans out to several job APIs + batched AI scoring — well past the default
-// serverless timeout. 60s is safe on all Vercel plans; raise toward 300 on Pro
-// if large refreshes still time out.
-export const maxDuration = 60;
+// Fans out to several job APIs + batched AI scoring. Raised to the Pro/Fluid
+// ceiling for headroom; Vercel clamps this down to the plan's limit (e.g. 60s
+// on Hobby) without failing the build. The real guarantee against a 504 is the
+// SCORING_BUDGET_MS deadline below, which always returns a (possibly partial)
+// success well under the cap regardless of plan.
+export const maxDuration = 300;
+
+// Wall-clock budget for the whole run, kept safely under the smallest plan cap
+// (Hobby = 60s) so the request never hits FUNCTION_INVOCATION_TIMEOUT. Scoring
+// stops launching new batches once this elapses; only scored jobs are persisted
+// and billed, so the remainder is re-fetched cheaply on the next refresh.
+// Override with REFRESH_BUDGET_MS (e.g. on Pro where the cap is higher). 45s
+// leaves headroom under a 60s cap for the final in-flight wave + persist/charge.
+const SCORING_BUDGET_MS = Number(process.env.REFRESH_BUDGET_MS) || 45_000;
 
 export async function POST() {
   try {
@@ -31,6 +41,7 @@ export async function POST() {
 }
 
 async function runRefresh() {
+  const deadline = Date.now() + SCORING_BUDGET_MS;
   const userId = await getSessionUserId();
   if (!userId) {
     return NextResponse.json({ error: "Sign in to continue." }, { status: 401 });
@@ -165,11 +176,13 @@ async function runRefresh() {
       location: j.location,
       description: j.description,
     })),
+    deadline,
   );
 
   // 5. Drop fresh jobs that didn't get a score (transient AI 429, malformed
-  // response, etc.) — they never enter the DB and never bill the user, so a
-  // future Research can re-fetch and retry them. Every persisted row is
+  // response, or the scoring deadline cutting the run short) — they never enter
+  // the DB and never bill the user, so a future Research can re-fetch and retry
+  // them. Every persisted row is
   // guaranteed to have a real matchScore, missingSkills, and
   // requiredLanguages — the previous null-allowed shape no longer happens.
   const scoredFresh = fresh.filter((j) => scores.has(j.dedupeHash));

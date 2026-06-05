@@ -1,5 +1,6 @@
 import { getSourceCredentials } from "@/lib/credentials";
 import { inferJobType, inferSeniority } from "@/lib/infer";
+import { fetchWithTimeout } from "./http";
 import type { JobSource, RawJob, SearchParams } from "./types";
 
 /**
@@ -68,7 +69,7 @@ async function fetchOnePage(
   };
   if (location) body.location = location;
 
-  const res = await fetch(`${BASE_URL}/${encodeURIComponent(apiKey)}`, {
+  const res = await fetchWithTimeout(`${BASE_URL}/${encodeURIComponent(apiKey)}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
@@ -140,7 +141,7 @@ export const jooble: JobSource = {
   async healthCheck() {
     const { apiKey } = await getSourceCredentials("JOOBLE");
     if (!apiKey) throw new Error("No credentials.");
-    const res = await fetch(`${BASE_URL}/${encodeURIComponent(apiKey)}`, {
+    const res = await fetchWithTimeout(`${BASE_URL}/${encodeURIComponent(apiKey)}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ keywords: "designer", page: "1", ResultOnPage: "1" }),

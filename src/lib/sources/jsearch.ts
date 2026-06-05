@@ -1,6 +1,7 @@
 import type { JobType } from "@/generated/prisma/enums";
 import { getSourceCredentials } from "@/lib/credentials";
 import { inferSeniority } from "@/lib/infer";
+import { fetchWithTimeout } from "./http";
 import type { JobSource, RawJob, SearchParams } from "./types";
 
 const ENDPOINT = "https://jsearch.p.rapidapi.com/search";
@@ -86,7 +87,7 @@ async function fetchQuery(
   // "month" is the broadest value that actually returns results.
   url.searchParams.set("date_posted", "month");
 
-  const res = await fetch(url, {
+  const res = await fetchWithTimeout(url, {
     headers: {
       "X-RapidAPI-Key": apiKey,
       "X-RapidAPI-Host": HOST,
@@ -146,7 +147,7 @@ export const jsearch: JobSource = {
     url.searchParams.set("page", "1");
     url.searchParams.set("num_pages", "1");
     url.searchParams.set("country", "de");
-    const res = await fetch(url, {
+    const res = await fetchWithTimeout(url, {
       headers: { "X-RapidAPI-Key": apiKey, "X-RapidAPI-Host": HOST },
       cache: "no-store",
     });

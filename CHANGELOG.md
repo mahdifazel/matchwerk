@@ -126,6 +126,13 @@ Multi-tenancy with Auth.js, an in-app token economy, **Stripe payments**, a
 - **Webhook + confirm flow unchanged** — still `creditCheckoutSession` idempotent on `TokenLedger.stripeSessionId`. Refunds + admin tooling unchanged.
 - **Test coverage**: route test updated to assert the new `{ clientSecret, sessionId }` shape, the new `ui_mode: "embedded_page"`, `customer_email`, `locale`, `billing_address_collection`, the absence of `payment_method_types`, and a 502 case for missing `client_secret`. 45/45 still pass.
 
+### Added — Settings → board CTA
+
+- **`board-cta.tsx`** — new section at the end of `/settings`: a "Last step / You're all set" card with a readiness checklist (CV uploaded & parsed; at least one job title) and a **"Take me to the board"** button (→ `/`). Improves discoverability — users were having trouble finding the board after filling in their CV and preferences.
+- **Gated navigation** — the button is only active once both requirements are met (manually or auto-filled by a CV upload), so users can't proceed before the board has what it needs to score jobs. The checklist shows a per-step done/pending state and an "X of 2 steps done" progress line.
+- **Live readiness** — both inputs live in sibling components (`cv-upload.tsx` / `settings-form.tsx`), so the CTA re-derives readiness from `/api/cv` + `/api/settings` and re-checks on the existing `cv-updated` / `settings-updated` window events; the button lights up immediately after a CV upload or a settings save, no reload.
+- **Design** — Atelier card with the `bg-accent` top strip (chartreuse light / lavender dark), `font-display` headline, theme-aware muted/accent surfaces, and the `render={<Link/>}` base-ui button pattern.
+
 ## [1.1.0] — 2026-05-16
 
 Source-credential management in the UI, editable CV profile, personalized matching, and a board UX rework.

@@ -145,13 +145,21 @@ const SCORING_CONCURRENCY = 4;
  * Score every job against the CV profile and the user's settings preferences.
  * Batches run with bounded concurrency; `Promise.allSettled` keeps a single
  * batch's transient error from sinking the whole run — surviving batches'
- * scores are still applied; unscored jobs persist with `matchScore: null`.
+ * scores are still applied; unscored jobs are dropped at save time.
+ *
+ * `deadline` (epoch ms) bounds the wall-clock spend: once it passes, no new
+ * wave is launched and whatever scored so far is returned. The caller persists
+ * only scored jobs, so a partial run is a clean success — the rest can be
+ * re-fetched on the next refresh. Without this the first refresh (up to
+ * MAX_SEARCH_JOBS fresh jobs to rate) could blow past Vercel's function cap and
+ * 504 the whole request.
  */
 export async function scoreJobs(
   profile: Profile,
   jobTitles: string[],
   prefs: ScoringPreferences,
   jobs: JobToScore[],
+  deadline?: number,
 ): Promise<Map<string, JobScore>> {
   const batches: JobToScore[][] = [];
   for (let i = 0; i < jobs.length; i += BATCH_SIZE) {
@@ -160,6 +168,13 @@ export async function scoreJobs(
 
   const scores = new Map<string, JobScore>();
   for (let i = 0; i < batches.length; i += SCORING_CONCURRENCY) {
+    if (deadline && Date.now() >= deadline) {
+      console.warn(
+        `[matcher] scoring deadline reached — scored ${scores.size} job(s), ` +
+          `skipping ${batches.length - i} remaining batch(es).`,
+      );
+      break;
+    }
     const wave = batches.slice(i, i + SCORING_CONCURRENCY);
     const settled = await Promise.allSettled(
       wave.map((b) => scoreBatch(profile, jobTitles, prefs, b)),
