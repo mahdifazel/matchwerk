@@ -1,3 +1,4 @@
+import { BoardCta } from "@/components/board-cta";
 import { CvUpload } from "@/components/cv-upload";
 import { SettingsForm } from "@/components/settings-form";
 
@@ -15,6 +16,7 @@ export default function SettingsPage() {
       </header>
       <CvUpload />
       <SettingsForm />
+      <BoardCta />
     </main>
   );
 }
