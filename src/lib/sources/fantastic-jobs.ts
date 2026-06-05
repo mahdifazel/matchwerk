@@ -1,6 +1,7 @@
 import type { JobType } from "@/generated/prisma/enums";
 import { getSourceCredentials } from "@/lib/credentials";
 import { inferJobType, inferSeniority } from "@/lib/infer";
+import { fetchWithTimeout } from "./http";
 import type { JobSource, RawJob, SearchParams } from "./types";
 
 const ENDPOINT = "https://active-jobs-db.p.rapidapi.com/active-ats-7d";
@@ -123,7 +124,7 @@ async function fetchQuery(
   url.searchParams.set("limit", String(LIMIT_PER_QUERY));
   url.searchParams.set("offset", "0");
 
-  const res = await fetch(url, {
+  const res = await fetchWithTimeout(url, {
     headers: {
       accept: "application/json",
       "X-RapidAPI-Key": apiKey,
@@ -185,7 +186,7 @@ export const fantasticJobs: JobSource = {
     const url = new URL(ENDPOINT);
     url.searchParams.set("advanced_title_filter", "designer");
     url.searchParams.set("limit", "1");
-    const res = await fetch(url, {
+    const res = await fetchWithTimeout(url, {
       headers: { accept: "application/json", "X-RapidAPI-Key": apiKey, "X-RapidAPI-Host": HOST },
       cache: "no-store",
     });

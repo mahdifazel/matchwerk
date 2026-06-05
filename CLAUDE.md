@@ -71,7 +71,7 @@ Job_Hunter/
     │   ├── login/page.tsx      # Sign-in (Google + email/password)
     │   ├── register/page.tsx   # Open registration (email/password)
     │   ├── account/page.tsx    # Account settings: name, password, token balance, GDPR export/delete
-    │   ├── settings/page.tsx   # CV upload + job titles (source keys/Sources moved to admin)
+    │   ├── settings/page.tsx   # CV upload + job titles + board CTA (source keys/Sources moved to admin)
     │   ├── plans/page.tsx      # Token purchase plans → Stripe Checkout
     │   ├── admin/              # Role-gated backoffice: layout + dashboard, users/[id], plans, system, health, announcements, webhooks, roles, messages, messages/[id]
     │   ├── contact/page.tsx    # Logged-in feedback channel
@@ -106,6 +106,7 @@ Job_Hunter/
     │   ├── filter-bar.tsx, refresh-button.tsx, empty-state.tsx
     │   ├── cv-upload.tsx           # Drag-and-drop + inline profile editor
     │   ├── settings-form.tsx       # Job titles list only (API credentials + Sources moved to admin)
+    │   ├── board-cta.tsx           # End-of-settings "go to board" CTA — gated on CV profile + a job title
     │   ├── admin/                  # Sidebar + manager/viewer components for every admin page
     │   └── ui/                     # shadcn primitives wrapping @base-ui/react
     └── lib/
@@ -159,6 +160,10 @@ Job_Hunter/
 
 ### CV profile editing (no re-upload)
 - `PATCH /api/cv` accepts `{ summary?, skills?, tools?, industries?, languages?, keywords? }`. Zod-validated; trims, drops empty strings, caps lists at 200, summary ≤ 4000 chars. `cv-upload.tsx` renders the inline editor (chip lists for each array field; the new **Languages** section sits between Industries and Keywords) and dispatches `cv-updated` on save so `settings-form.tsx` re-fetches.
+
+### Board CTA (settings → board discoverability)
+- `board-cta.tsx` renders the last section of `/settings`: a "Last step / You're all set" card with a readiness checklist (CV uploaded & parsed; at least one job title) and a **"Take me to the board"** button (→ `/`). The button is **gated** — it's only active once both requirements are met, so users can't proceed before the board has what it needs to score jobs.
+- Both pieces of state live in sibling components (`cv-upload.tsx` / `settings-form.tsx`), so the CTA re-derives readiness by fetching `/api/cv` + `/api/settings` and re-checks on the same `cv-updated` / `settings-updated` window events — it lights up immediately after a CV upload (which auto-fills titles) or a manual save, no reload.
 
 ### Refresh (the main loop)
 `POST /api/jobs/refresh` (`src/app/api/jobs/refresh/route.ts`):

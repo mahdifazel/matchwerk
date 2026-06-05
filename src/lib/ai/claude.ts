@@ -135,14 +135,21 @@ export const claudeProvider: AiProvider = {
 
   async scoreBatch(systemPrompt: string, userPrompt: string): Promise<RawJobScore[]> {
     const anthropic = await client();
-    const response = await anthropic.messages.create({
-      model: CLAUDE_MODELS.scoring,
-      max_tokens: 2048,
-      system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral" } }],
-      tools: [SCORE_TOOL],
-      tool_choice: { type: "tool", name: "save_scores" },
-      messages: [{ role: "user", content: userPrompt }],
-    });
+    // Bound each batch so a slow/hung scoring call can't blow the refresh
+    // function cap. The SDK's default (10-min timeout, 2 retries) would let one
+    // stuck batch run far past the request budget; unscored jobs are simply
+    // dropped and re-fetched next refresh, so failing fast is the right move.
+    const response = await anthropic.messages.create(
+      {
+        model: CLAUDE_MODELS.scoring,
+        max_tokens: 2048,
+        system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral" } }],
+        tools: [SCORE_TOOL],
+        tool_choice: { type: "tool", name: "save_scores" },
+        messages: [{ role: "user", content: userPrompt }],
+      },
+      { timeout: 20_000, maxRetries: 1 },
+    );
     const block = response.content.find((b) => b.type === "tool_use");
     if (!block || block.type !== "tool_use") return [];
     const input = block.input as { scores?: RawJobScore[] };

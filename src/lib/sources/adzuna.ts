@@ -1,6 +1,7 @@
 import type { JobType } from "@/generated/prisma/enums";
 import { getSourceCredentials } from "@/lib/credentials";
 import { inferJobType, inferSeniority } from "@/lib/infer";
+import { fetchWithTimeout } from "./http";
 import type { JobSource, RawJob, SearchParams } from "./types";
 
 /** Path uses /search/{page} — built per page in fetchOnePage. */
@@ -59,7 +60,7 @@ async function fetchOnePage(
   // No max_days_old — return listings regardless of post date.
   url.searchParams.set("content-type", "application/json");
 
-  const res = await fetch(url, { cache: "no-store" });
+  const res = await fetchWithTimeout(url, { cache: "no-store" });
   if (!res.ok) {
     throw new Error(`Adzuna returned ${res.status} for "${what}"`);
   }
@@ -130,7 +131,7 @@ export const adzuna: JobSource = {
     url.searchParams.set("what", "designer");
     url.searchParams.set("results_per_page", "1");
     url.searchParams.set("content-type", "application/json");
-    const res = await fetch(url, { cache: "no-store" });
+    const res = await fetchWithTimeout(url, { cache: "no-store" });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
   },
 

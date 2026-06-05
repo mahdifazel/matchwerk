@@ -1,4 +1,5 @@
 import { inferJobType, inferSeniority } from "@/lib/infer";
+import { fetchWithTimeout } from "./http";
 import type { JobSource, RawJob, SearchParams } from "./types";
 
 const BASE_URL =
@@ -76,7 +77,7 @@ async function fetchOnePage(
   }
   if (target.remote) url.searchParams.set("arbeitszeit", "ho");
 
-  const res = await fetch(url, {
+  const res = await fetchWithTimeout(url, {
     headers: { "X-API-Key": API_KEY },
     cache: "no-store",
   });
@@ -138,7 +139,7 @@ export const baJobboerse: JobSource = {
     const url = new URL(BASE_URL);
     url.searchParams.set("was", "designer");
     url.searchParams.set("size", "1");
-    const res = await fetch(url, { headers: { "X-API-Key": API_KEY }, cache: "no-store" });
+    const res = await fetchWithTimeout(url, { headers: { "X-API-Key": API_KEY }, cache: "no-store" });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
   },
 

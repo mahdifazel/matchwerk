@@ -13,7 +13,7 @@ A walk through how Matchwerk is put together: the system shape, the directory la
 │                           Browser  (React 19)                          │
 │   /login · /register · /account  — auth + account (token balance)      │
 │   /                 — JobBoard component (header shows token pill)      │
-│   /settings         — CvUpload + SettingsForm components               │
+│   /settings         — CvUpload + SettingsForm + BoardCta components     │
 │   fetch JSON ↕                                                         │
 ├──────────────────────────────────────────────────────────────────────┤
 │                  Next.js 16 server  (App Router)                       │
@@ -114,6 +114,7 @@ src/components/
 ├── cv-upload.tsx           # Drag-and-drop + inline editor (chips, summary textarea, Save/Discard)
 ├── credential-editor.tsx   # Per-source API key editor (masked status, save, clear)
 ├── settings-form.tsx       # Job-titles list + collapsible API credentials + collapsible Sources
+├── board-cta.tsx           # End-of-settings CTA → board; gated on CV profile + a job title
 └── ui/                     # shadcn primitives over @base-ui/react
 
 src/lib/
@@ -560,7 +561,7 @@ Every data row carries a `userId` (`onDelete: Cascade` from `User`). `userId` is
 - `showFilters` — collapsible filter panel
 - `heroTitle` — dynamic hero title sourced from `Settings.jobTitles[0]`, refreshed on `cv-updated` / `settings-updated` window events
 
-Cross-component sync uses two custom window events: `cv-updated` (dispatched by `cv-upload.tsx` on POST / PATCH success) and `settings-updated` (dispatched by `settings-form.tsx` on save). `SettingsForm` re-fetches `/api/settings` on `cv-updated`; `JobBoard` clears `jobs` and re-fetches the hero title.
+Cross-component sync uses two custom window events: `cv-updated` (dispatched by `cv-upload.tsx` on POST / PATCH success) and `settings-updated` (dispatched by `settings-form.tsx` on save). `SettingsForm` re-fetches `/api/settings` on `cv-updated`; `JobBoard` clears `jobs` and re-fetches the hero title; `BoardCta` (`board-cta.tsx`) re-derives its readiness gate (CV profile present + ≥ 1 job title) on both events, so its "Take me to the board" button activates the moment setup is complete.
 
 Toasts (`sonner`) are positioned `top-center` and use the design-system tokens via the wrapper in `src/components/ui/sonner.tsx`.
 
