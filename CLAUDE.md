@@ -39,7 +39,6 @@ The original audience is one person — the project owner, searching Product Des
 | Validation | `zod` 4 |
 | Toasts | `sonner` |
 | Lint | `eslint-config-next/core-web-vitals` + `eslint-config-next/typescript` |
-| Scraping fallback | `python-jobspy` (Python 3.10+) running in `.venv-jobspy/`, spawned from Node via `child_process.spawn` |
 
 ---
 
@@ -54,9 +53,6 @@ Job_Hunter/
 │   └── migrations/             # …add_auth_multitenant, add_token_billing, add_token_purchase, add_admin_roles, add_platform_config, add_plans, add_request_log, add_announcement, add_webhook_event
 ├── prisma.config.ts            # Loads schema + DATABASE_URL via dotenv
 ├── svgo.config.mjs             # Picked up by `npx svgo`; preserves Figma layer IDs (cleanupIds disabled)
-├── scripts/
-│   └── jobspy_bridge.py        # Python bridge for the JobSpy adapter
-├── .venv-jobspy/               # Gitignored Python venv for jobspy
 ├── public/                     # Static assets
 └── src/
     ├── auth.ts                 # NextAuth init: Google + Credentials providers, JWT session, createUser event (claim orphans + signup grant)
@@ -141,8 +137,7 @@ Job_Hunter/
             ├── jsearch.ts          # RapidAPI aggregator (reads getSourceCredentials("JSEARCH"))
             ├── fantastic-jobs.ts   # RapidAPI Active Jobs DB (tsquery title filter)
             ├── adzuna.ts           # Adzuna /de/search
-            ├── jooble.ts           # Jooble aggregator (POST /api/{apiKey})
-            └── jobspy.ts           # Spawns the Python bridge
+            └── jooble.ts           # Jooble aggregator (POST /api/{apiKey})
 ```
 
 ---
@@ -172,7 +167,6 @@ Job_Hunter/
 3. **`searchEnabledSources`** (`src/lib/sources/search.ts`) runs sources by tier:
    - **Primary** (`BA_JOBBOERSE`, `JSEARCH`, `FANTASTIC_JOBS`) in parallel.
    - **Backup** (`ADZUNA`, `JOOBLE`) only if the primary tier returned fewer than **10** results total.
-   - **Fallback** (`JOBSPY`) runs unless blocked (disabled / no key / adapter not connected).
    - Each source reports `{ ran, count, skippedReason? }`.
 4. `dedupeRawJobs` collapses cross-source duplicates by SHA-1 of `normalize(title)|normalize(company)|normalize(city)` (after stripping gender markers like `(m/w/d)`).
 5. Filter against the DB by `dedupeHash` — anything already stored (any status, including `DELETED`) is dropped, so previously-hidden jobs stay hidden.
@@ -262,7 +256,7 @@ Order: starred/inbox sort by `matchScore DESC, fetchedAt DESC`; applied sorts by
 - **`SourceCredential`** — **legacy/unused**. Source keys are now global (`PlatformCredential`); this per-user table is kept only for historical rows.
 - **`Job`** — `userId`, `source` (enum), `externalId`, `dedupeHash`, title/company/location/url/description, `publisher` (for aggregators), `jobType`/`seniority` enums, `publishedAt`, `matchScore`/`matchExplanation`/`missingSkills[]`/`requiredLanguages[]`/`scoredAt`, `status` (`NEW`/`STARRED`/`APPLIED`/`DELETED`), `appliedAt`. **`requiredLanguages`** is a `String[] @default([])` normalised to a subset of `["de", "en"]`; the scorer fills it from the JD, and **an empty array is meaningful**: per DECISIONS #38, it means no language requirement was stated, so the board's "English" filter treats the job as English-suffices. Dedupe uniqueness is **per user** (`@@unique([userId, dedupeHash])`). Indexed by `[userId, status]`, `status`, and `source`.
 - **`ContactMessage`** — user-submitted feedback. FK to `User` (`onDelete: Cascade`). Snapshots `name` + `email` at submit time so the admin inbox stays accurate even if the user later renames or deletes. `subject`, `category` (enum), `body`, `status` (enum), `createdAt`, `readAt?`, `repliedAt?`. Indexed by `[status, createdAt]` and `[userId, createdAt]`.
-- **Enums** — `UserRole` (`USER`/`ADMIN`/`SUPER_ADMIN`); `JobSourceId` (`BA_JOBBOERSE`, `JSEARCH`, `ADZUNA`, `JOBSPY`, `FANTASTIC_JOBS`, `JOOBLE`, plus 6 legacy values kept for historical rows: `INDEED`, `LINKEDIN`, `STEPSTONE`, `XING`, `GLASSDOOR`, `MONSTER`); `JobStatus`; `Seniority`; `JobType`; `ContactMessageStatus` (`NEW`/`READ`/`REPLIED`); `ContactMessageCategory` (`QUESTION`/`BUG`/`FEATURE_REQUEST`/`OTHER`).
+- **Enums** — `UserRole` (`USER`/`ADMIN`/`SUPER_ADMIN`); `JobSourceId` (`BA_JOBBOERSE`, `JSEARCH`, `ADZUNA`, `FANTASTIC_JOBS`, `JOOBLE`, plus 7 legacy values kept for historical rows: `JOBSPY` (the removed scraping fallback), `INDEED`, `LINKEDIN`, `STEPSTONE`, `XING`, `GLASSDOOR`, `MONSTER`); `JobStatus`; `Seniority`; `JobType`; `ContactMessageStatus` (`NEW`/`READ`/`REPLIED`); `ContactMessageCategory` (`QUESTION`/`BUG`/`FEATURE_REQUEST`/`OTHER`).
 
 > `userId` is nullable on the four data models only so pre-multi-tenancy rows survive migration as orphans until the first account claims them (`src/lib/claim.ts`). New rows always get the authenticated `userId`, and every query scopes by it.
 
@@ -297,11 +291,7 @@ npm run db:migrate
 #    use, so there's no global singleton to bootstrap.
 npm run db:seed
 
-# 6. (Optional) Set up the JobSpy Python venv if you want the scraping fallback
-python3.12 -m venv .venv-jobspy
-.venv-jobspy/bin/pip install python-jobspy
-
-# 7. Dev server (Turbopack)
+# 6. Dev server (Turbopack)
 npm run dev   # http://localhost:3000
 ```
 
@@ -357,13 +347,12 @@ npm run dev   # http://localhost:3000
 | `FANTASTIC_JOBS_API_KEY` | `fantastic-jobs` adapter | RapidAPI key for Active Jobs DB. Can reuse the JSearch key (same RapidAPI account). |
 | `ADZUNA_APP_ID` + `ADZUNA_APP_KEY` | `adzuna` adapter | Free credentials at developer.adzuna.com |
 | `JOOBLE_API_KEY` | `jooble` adapter | API key from your Jooble account (jooble.org/api/about). Key is sent as the URL path on each POST. |
-| `JOBSPY_SITES` | `jobspy` adapter | Optional comma-separated override. Default: `indeed,glassdoor`. LinkedIn intentionally left out — it aggressively blocks scrapers. |
 
 Sources without their key set surface in the UI as disabled with the hint *"Key needed"* — the toggle is greyed and `configured: false` comes back from `GET /api/sources`.
 
 **Admin-stored keys override env vars.** AI keys and source keys are **global**: a value saved in **Admin → System Settings** lives in `PlatformCredential` (keyed by the env-var name) and takes precedence over `process.env`. Resolution is `getPlatformCredential(name)` in `src/lib/platform.ts` → DB → env. The env entries above are fallbacks for first-run / CI; clear the DB entry to fall back to env again. (There is no longer a per-user credential editor in client Settings.)
 
-The mapping of source → editable fields → env-fallback name lives in `SOURCE_CREDENTIAL_SCHEMA` (`src/lib/credential-schema.ts`). Editable in admin: `JSEARCH` (1 field), `FANTASTIC_JOBS` (1 field), `ADZUNA` (2 fields), `JOOBLE` (1 field). `BA_JOBBOERSE` and `JOBSPY` have no editable credentials.
+The mapping of source → editable fields → env-fallback name lives in `SOURCE_CREDENTIAL_SCHEMA` (`src/lib/credential-schema.ts`). Editable in admin: `JSEARCH` (1 field), `FANTASTIC_JOBS` (1 field), `ADZUNA` (2 fields), `JOOBLE` (1 field). `BA_JOBBOERSE` has no editable credentials.
 
 **Security**: `.env` and `.env.local` are both gitignored. Never paste secrets in chat or in tracked files. `secrets` columns are never returned over the wire — only a `••••<last4>` masked tail.
 
@@ -398,8 +387,7 @@ Strictly observed in the existing code:
 - **There is no CI.** No `.github/workflows`, so nothing runs `npm test` automatically yet — run it locally before releasing payment changes.
 - **There is no Dockerfile for the app itself** — only `docker-compose.yml` for Postgres. The app is meant to be run locally with `npm run dev` or built and started with `npm start`. Production deployment is not documented in the repo — see `docs/DEPLOYMENT.md`.
 - **There is no license file.** `package.json` has no `license` field and there is no `LICENSE`. Treat the code as "all rights reserved" until the owner declares one.
-- **Six legacy enum values** (`INDEED`, `LINKEDIN`, etc.) exist on `JobSourceId` for historical rows only. Do not surface them in the UI or add adapters for them — the project memory rejects scraping LinkedIn/Glassdoor directly.
-- **JobSpy needs Python 3.10+**. macOS system Python is often 3.9 — use Homebrew Python (`/opt/homebrew/bin/python3.12`).
+- **Seven legacy enum values** (`JOBSPY`, `INDEED`, `LINKEDIN`, etc.) exist on `JobSourceId` for historical rows only. Do not surface them in the UI or add adapters for them — the project memory rejects scraping LinkedIn/Glassdoor directly. `JOBSPY` was the open-source scraping fallback; it has been removed (the adapter, Python bridge, and venv are gone) and the enum value is kept only so old `Job` rows stay valid.
 - **Hydration warning at boot** is harmless and comes from browser extensions (`cz-shortcut-listen`).
 - **Memory-resident state**: `src/lib/prisma.ts` keeps a single Prisma client across dev-mode hot reloads via `globalThis`. Don't `new PrismaClient()` anywhere else.
 - **Tokens are now purchasable (Stripe, test mode).** Beyond the 300-token signup grant, users top up on `/plans` via Stripe Checkout. Two **balance gates** exist (CV needs ≥ 25; Research needs > 0) plus admin rate limits — so AI usage *can* be blocked now (a change from the original "never block" design). `charge` itself still floors at 0 and accrues `tokenDebt`; the gates are what refuse. Stripe defaults to test mode; **live billing is supported** but gated — a `sk_live_…` key only works with `STRIPE_ALLOW_LIVE=true`, and going live also needs an activated Stripe account + live webhook (see §4 Payments, §8).

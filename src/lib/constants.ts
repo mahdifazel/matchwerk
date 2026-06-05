@@ -93,13 +93,6 @@ export const SOURCE_META: SourceMeta[] = [
     connected: true,
     note: "Aggregator with strong EU coverage · jooble.org",
   },
-  {
-    id: "JOBSPY",
-    label: "JobSpy",
-    tier: "fallback",
-    connected: true,
-    note: "Open-source scraper · Indeed + Glassdoor · used as a top-up",
-  },
 ];
 
 export const ALL_SOURCE_IDS: JobSourceId[] = SOURCE_META.map((s) => s.id);

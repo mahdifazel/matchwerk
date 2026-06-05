@@ -20,7 +20,7 @@ Derived from the codebase:
 
 1. **Node.js ≥ 20** (Next.js 16 + React 19).
 2. **A PostgreSQL database** reachable as `DATABASE_URL`. Tested locally with PG 16. The Prisma client uses `@prisma/adapter-pg` so any Postgres-compatible service should work.
-3. **Outbound HTTPS** to: `api.anthropic.com`, `rest.arbeitsagentur.de`, `jsearch.p.rapidapi.com`, `active-jobs-db.p.rapidapi.com`, `api.adzuna.com`. Also Indeed and Glassdoor *if* JobSpy is enabled.
+3. **Outbound HTTPS** to: `api.anthropic.com`, `rest.arbeitsagentur.de`, `jsearch.p.rapidapi.com`, `active-jobs-db.p.rapidapi.com`, `api.adzuna.com`, `jooble.org`.
 4. **Environment variables** as documented in `.env.example`:
    - `DATABASE_URL` (required)
    - `AUTH_SECRET` (required — signs the session JWT; generate with `npx auth secret`). In production also set `AUTH_URL`/`NEXTAUTH_URL` to the deployed origin and `AUTH_TRUST_HOST=true` behind a proxy.
@@ -29,12 +29,10 @@ Derived from the codebase:
    - `GEMINI_API_KEY` (optional — enables the Gemini AI provider)
    - `STRIPE_SECRET_KEY` + `STRIPE_WEBHOOK_SECRET` (optional — token purchases). Test keys (`sk_test_…`) work as-is. **For live payments** set a `sk_live_…` key **and** `STRIPE_ALLOW_LIVE=true` (the app refuses a live key without that opt-in), plus `STRIPE_WEBHOOK_SECRET` from a **live** endpoint registered at `https://<host>/api/stripe/webhook`. Live mode also needs an activated Stripe account and is your responsibility for VAT/tax + terms.
    - `AUTH_GOOGLE_ID` + `AUTH_GOOGLE_SECRET` (optional — Google sign-in; register the prod redirect URI `https://<host>/api/auth/callback/google`. Email/password works without it.)
-   - `JSEARCH_API_KEY`, `FANTASTIC_JOBS_API_KEY`, `ADZUNA_APP_ID`, `ADZUNA_APP_KEY` (optional, per source — env fallbacks; can also be set in admin)
-   - `JOBSPY_SITES` (optional, JobSpy only)
+   - `JSEARCH_API_KEY`, `FANTASTIC_JOBS_API_KEY`, `ADZUNA_APP_ID`, `ADZUNA_APP_KEY`, `JOOBLE_API_KEY` (optional, per source — env fallbacks; can also be set in admin)
 
    > **Note (2026-05-25):** AI + source keys are also settable in the **admin backoffice** (stored in `PlatformCredential`, DB-first over env). The env vars above remain the first-run/CI fallback.
-5. **If JobSpy is needed:** Python 3.10+ runtime alongside Node + the `.venv-jobspy/` venv with `python-jobspy` installed. Most managed Node hosts don't provide a Python runtime — this means JobSpy effectively cannot run on Vercel, Netlify, or similar serverless platforms. Use a container host or a VM if you need it.
-6. **Persistent disk for Postgres** (if you're hosting the DB yourself).
+5. **Persistent disk for Postgres** (if you're hosting the DB yourself).
 
 The app **does not** need:
 
@@ -94,7 +92,6 @@ CMD ["sh", "-c", "npx prisma migrate deploy && node node_modules/next/dist/bin/n
 Caveats:
 
 - Sets `next.config.ts: { output: "standalone" }` would shrink the runtime image but is not currently configured.
-- Does *not* include the JobSpy venv. To include it, add `apk add python3 py3-pip` to the runner stage and bake in `python-jobspy`, then ensure `.venv-jobspy/bin/python` resolves at runtime (or rewrite `jobspy.ts` to look up `which python3`).
 - Does *not* include a healthcheck endpoint. `GET /api/sources` now requires a session and returns **401** when unauthenticated — a 401 still proves the process is up, but it's not a clean `200` liveness probe. Adding a public `/api/health` returning `{ ok: true }` is the cleaner fix (see "What needs to be added").
 
 ### docker-compose.prod.yml (proposed, not committed)
@@ -150,8 +147,7 @@ Possible but with caveats:
 - Set the same env vars (use Vercel's encrypted env UI, **never** commit them).
 - Use a managed Postgres (Neon, Supabase, Render Postgres) — Vercel doesn't provide one bundled.
 - Run `npx prisma migrate deploy` from a one-off CLI session against the managed DB before deploying, or wire it into a `postbuild` script (`"postbuild": "prisma migrate deploy"`) — **this is not currently configured**.
-- **JobSpy will not work.** Vercel functions have no Python runtime and no persistent venv. The adapter will see `existsSync(VENV_PYTHON) === false`, return `[]`, and the source will silently skip. That's the designed-in fallback behaviour.
-- Long refresh runs (~30 s) approach Vercel's free-tier timeout (10 s for Edge, 60 s for Pro Functions). On free tier, expect refreshes to time out before all sources complete.
+- Long refresh runs approach the function timeout. `POST /api/jobs/refresh` sets `maxDuration = 300` (clamped to the plan's limit) and applies an internal scoring budget (`REFRESH_BUDGET_MS`, default 45 s) so the request returns a partial-but-successful result instead of a 504 — raise the budget on plans with a higher cap.
 
 ---
 

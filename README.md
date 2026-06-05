@@ -29,7 +29,6 @@ A multi-tenant AI job-search web app for Product Design (and other) roles in Ger
 - **Node.js** ≥ 20 and **npm**
 - **Docker** (for the local Postgres instance)
 - An **Anthropic API key** ([console.anthropic.com](https://console.anthropic.com/)) — required for CV parsing and scoring
-- **Python 3.12** (optional — only needed if you want the JobSpy scraping fallback). On macOS: `brew install python@3.12`.
 
 ## Installation
 
@@ -51,11 +50,7 @@ npm run db:up
 # 4. Apply migrations (seed is a no-op now — data is created per-user on use)
 npm run db:migrate
 
-# 5. (Optional) JobSpy scraping fallback
-python3.12 -m venv .venv-jobspy
-.venv-jobspy/bin/pip install python-jobspy
-
-# 6. Run the dev server
+# 5. Run the dev server
 npm run dev
 ```
 
@@ -86,7 +81,6 @@ Two gitignored files. See `.env.example` for the canonical list and inline docs.
 | `.env.local` | `FANTASTIC_JOBS_API_KEY` | Optional. RapidAPI key for Active Jobs DB (same RapidAPI account as JSearch is fine). |
 | `.env.local` | `ADZUNA_APP_ID` + `ADZUNA_APP_KEY` | Optional. Free credentials at [developer.adzuna.com](https://developer.adzuna.com/). |
 | `.env.local` | `JOOBLE_API_KEY` | Optional. Free API key from [jooble.org/api/about](https://jooble.org/api/about). |
-| `.env.local` | `JOBSPY_SITES` | Optional. Comma-separated override; default `indeed,glassdoor`. |
 | `.env.local` | `CONTACT_TO` | Optional. Fallback destination email for `/contact` submissions when the admin hasn't set one in `AppSetting "contact_to"`. Messages still save without it; no email goes out. |
 | `.env.local` | `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | **Required when payments are enabled.** `pk_test_…` for dev, `pk_live_…` for prod. Used on the client to mount Stripe Embedded Checkout on `/checkout/[planId]`. Stripe Dashboard → Developers → API keys. Production: also add the same key to Vercel's env vars (Settings → Environment Variables → Production), otherwise the prod embed won't load. |
 
@@ -119,7 +113,6 @@ Two gitignored files. See `.env.example` for the canonical list and inline docs.
 | **Fantastic.jobs** (Active Jobs DB) | primary | RapidAPI key | 3M+ career-site listings via 54 ATS platforms (Workday, Greenhouse, Ashby, …). Hourly refresh. Title filter is a Postgres tsquery. |
 | **Adzuna** | backup | free credentials | Germany/EU coverage. Queried only when the primary tier collectively returns fewer than 10 results. |
 | **Jooble** | backup | free API key | EU-wide aggregator (jooble.org). Same trigger as Adzuna — runs alongside it when the primary tier returns fewer than 10 results. |
-| **JobSpy** (open-source) | fallback | Python venv | Scrapes Indeed and Glassdoor by default. Skipped when primary returns enough; opt-in for the LinkedIn scraper via `JOBSPY_SITES`. |
 
 Adding a source requires (a) a new value on the `JobSourceId` Prisma enum + migration, (b) a new adapter implementing the `JobSource` interface, (c) entries in `ALL_SOURCES` and `SOURCE_META`, (d) an env var stub. The orchestrator picks it up automatically.
 
@@ -145,7 +138,6 @@ src/lib/matcher.ts       # Batched job scoring (via the active AI provider)
 src/lib/cv-parser.ts     # PDF/DOCX/TXT → structured profile (via the active AI provider)
 src/lib/{tokens,plans-repo,limits,budget,gdpr,impersonation,health,analytics}.ts
 prisma/                  # Schema, migrations, seed
-scripts/jobspy_bridge.py # Python sidecar for the JobSpy adapter
 ```
 
 ## Documentation

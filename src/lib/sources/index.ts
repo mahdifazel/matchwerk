@@ -1,7 +1,6 @@
 import { adzuna } from "./adzuna";
 import { baJobboerse } from "./ba-jobboerse";
 import { fantasticJobs } from "./fantastic-jobs";
-import { jobspy } from "./jobspy";
 import { jooble } from "./jooble";
 import { jsearch } from "./jsearch";
 import type { JobSource } from "./types";
@@ -13,7 +12,6 @@ export const ALL_SOURCES: JobSource[] = [
   fantasticJobs, // primary  — RapidAPI Active Jobs DB (3M+ career-site listings)
   adzuna, // backup   — Germany/EU coverage, used when JSearch is short
   jooble, // backup   — Jooble aggregator (jooble.org), free tier
-  jobspy, // fallback — scraping-based, disabled by default
 ];
 
 /** Sources with a working adapter implementation. */
