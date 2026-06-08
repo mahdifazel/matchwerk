@@ -31,6 +31,12 @@ export type AiConfig = {
   /** Ordered fallback chain (tried after `active`, in order). */
   fallback: AiProviderId[];
   enabled: Record<AiProviderId, boolean>;
+  /**
+   * Optional per-operation override: when set, JOB SCORING runs this provider
+   * first (then falls through the normal chain). CV parsing always uses the
+   * normal chain. null = scoring uses the normal chain too (default behavior).
+   */
+  scoringActive: AiProviderId | null;
 };
 
 const SETTING_KEY = "ai_providers";
@@ -39,6 +45,7 @@ const DEFAULT_CONFIG: AiConfig = {
   // Canonical priority — Groq (free) sits between Gemini and Claude.
   fallback: ["gemini", "groq", "claude"],
   enabled: { claude: true, gemini: true, groq: true },
+  scoringActive: null,
 };
 
 /**
@@ -68,6 +75,7 @@ export async function getAiConfig(): Promise<AiConfig> {
     active: cfg.active ?? DEFAULT_CONFIG.active,
     fallback: reconcileFallback(cfg.fallback),
     enabled: { ...DEFAULT_CONFIG.enabled, ...cfg.enabled },
+    scoringActive: cfg.scoringActive ?? null,
   };
 }
 
@@ -75,10 +83,13 @@ export async function setAiConfig(cfg: AiConfig): Promise<void> {
   await setAppSetting(SETTING_KEY, cfg);
 }
 
-/** Providers to try in order: active first, then the fallback chain; enabled only. */
-async function buildChain(): Promise<AiProvider[]> {
+/**
+ * Providers to try in order: optional `headId` first (a per-operation override),
+ * then active, then the fallback chain; deduped, enabled only.
+ */
+async function buildChain(headId?: AiProviderId | null): Promise<AiProvider[]> {
   const cfg = await getAiConfig();
-  const order = [cfg.active, ...cfg.fallback];
+  const order = [...(headId ? [headId] : []), cfg.active, ...cfg.fallback];
   const seen = new Set<AiProviderId>();
   const chain: AiProvider[] = [];
   for (const id of order) {
@@ -90,14 +101,14 @@ async function buildChain(): Promise<AiProvider[]> {
 }
 
 /**
- * Runs `fn` against the first enabled+configured provider, falling through the
- * chain on error. Throws if no provider can serve the request.
+ * Runs `fn` against the first enabled+configured provider in `chain`, falling
+ * through on error. Throws if no provider can serve the request.
  */
-export async function runWithAi<T>(
+async function runChain<T>(
+  chain: AiProvider[],
   fn: (p: AiProvider) => Promise<T>,
   operation?: string,
 ): Promise<T> {
-  const chain = await buildChain();
   let lastError: unknown = null;
   let tried = false;
   for (const provider of chain) {
@@ -127,6 +138,30 @@ export async function runWithAi<T>(
     );
   }
   throw new Error("AI request failed across all configured providers.");
+}
+
+/**
+ * Default lane: active provider first, then the fallback chain. Used for CV
+ * parsing and anything else.
+ */
+export async function runWithAi<T>(
+  fn: (p: AiProvider) => Promise<T>,
+  operation?: string,
+): Promise<T> {
+  return runChain(await buildChain(), fn, operation);
+}
+
+/**
+ * Scoring lane: when `scoringActive` is set (admin opt-in), that provider leads
+ * the chain (then falls through the normal order); otherwise identical to
+ * `runWithAi`. Lets scoring run on a cheaper provider without affecting CV parse.
+ */
+export async function runScoringWithAi<T>(
+  fn: (p: AiProvider) => Promise<T>,
+  operation?: string,
+): Promise<T> {
+  const cfg = await getAiConfig();
+  return runChain(await buildChain(cfg.scoringActive), fn, operation);
 }
 
 /** True when at least one enabled provider has a key. */

@@ -13,6 +13,7 @@ import { StatusBadge } from "@/components/admin/admin-ui";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 
 type ProviderId = "claude" | "gemini" | "groq";
@@ -31,7 +32,12 @@ type Provider = {
   key: { origin: "db" | "env" | "none"; masked: string | null };
 };
 
-type Config = { active: ProviderId; fallback: ProviderId[]; enabled: Record<ProviderId, boolean> };
+type Config = {
+  active: ProviderId;
+  fallback: ProviderId[];
+  enabled: Record<ProviderId, boolean>;
+  scoringActive: ProviderId | null;
+};
 
 export function SystemSettings() {
   const [providers, setProviders] = useState<Provider[]>([]);
@@ -80,6 +86,7 @@ export function SystemSettings() {
       active: id,
       fallback: FALLBACK_ORDER,
       enabled: { ...config.enabled, [id]: true },
+      scoringActive: config.scoringActive,
     });
   }
 
@@ -90,7 +97,18 @@ export function SystemSettings() {
       toast.error("Can't disable the active provider. Switch active first.");
       return;
     }
-    saveConfig({ active: config.active, fallback: FALLBACK_ORDER, enabled: nextEnabled });
+    saveConfig({
+      active: config.active,
+      fallback: FALLBACK_ORDER,
+      enabled: nextEnabled,
+      scoringActive: config.scoringActive,
+    });
+  }
+
+  function toggleScoringOnGroq() {
+    if (!config) return;
+    const next: ProviderId | null = config.scoringActive === "groq" ? null : "groq";
+    saveConfig({ ...config, scoringActive: next });
   }
 
   return (
@@ -127,6 +145,18 @@ export function SystemSettings() {
             ))}
           </div>
         )}
+
+        {config && (
+          <ScoringProviderToggle
+            on={config.scoringActive === "groq"}
+            groqReady={Boolean(
+              providers.find((p) => p.id === "groq")?.configured &&
+                config.enabled.groq,
+            )}
+            busy={busy}
+            onToggle={toggleScoringOnGroq}
+          />
+        )}
       </section>
 
       <section className="space-y-3">
@@ -157,6 +187,44 @@ export function SystemSettings() {
         <h2 className="eyebrow">Contact destination</h2>
         <ContactDestinationSettings />
       </section>
+    </div>
+  );
+}
+
+function ScoringProviderToggle({
+  on,
+  groqReady,
+  busy,
+  onToggle,
+}: {
+  on: boolean;
+  groqReady: boolean;
+  busy: boolean;
+  onToggle: () => void;
+}) {
+  // Off can always be set; On requires a configured + enabled Groq.
+  const disabled = busy || (!on && !groqReady);
+  return (
+    <div className="flex items-start justify-between gap-4 rounded-2xl border border-border/60 bg-card p-5">
+      <div>
+        <h3 className="font-display text-lg tracking-tight">Run job scoring on Groq</h3>
+        <p className="text-muted-foreground mt-1 text-sm">
+          Score jobs with Groq (free) while CV parsing stays on the active
+          provider for quality. Falls back through the normal chain if Groq is
+          unavailable. When off, scoring uses the active provider like today.
+        </p>
+        {!groqReady && (
+          <p className="text-muted-foreground mt-2 text-xs">
+            Add a Groq key and enable the Groq provider above to turn this on.
+          </p>
+        )}
+      </div>
+      <Switch
+        checked={on}
+        disabled={disabled}
+        onCheckedChange={onToggle}
+        aria-label="Run job scoring on Groq"
+      />
     </div>
   );
 }

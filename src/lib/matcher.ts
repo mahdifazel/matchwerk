@@ -1,6 +1,6 @@
 import type { Profile } from "@/generated/prisma/client";
 import type { JobType, Seniority } from "@/generated/prisma/enums";
-import { runWithAi } from "@/lib/ai";
+import { runScoringWithAi } from "@/lib/ai";
 
 export type JobToScore = {
   id: string;
@@ -115,7 +115,7 @@ async function scoreBatch(
     })
     .join("\n\n")}`;
 
-  const raw = await runWithAi(
+  const raw = await runScoringWithAi(
     (provider) => provider.scoreBatch(systemPrompt, userPrompt),
     "scoring",
   );
