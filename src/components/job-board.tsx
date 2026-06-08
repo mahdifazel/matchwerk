@@ -16,6 +16,7 @@ import { EmptyState } from "@/components/empty-state";
 import { FilterBar, type Filters } from "@/components/filter-bar";
 import { JobCard, type JobAction } from "@/components/job-card";
 import { RefreshButton } from "@/components/refresh-button";
+import { RefreshProgress } from "@/components/refresh-progress";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   AlertDialog,
@@ -55,6 +56,20 @@ const ALL_FILTERS: Filters = {
   minScore: 0,
 };
 
+// Estimated-research ETA. The card targets the last measured run (persisted in
+// localStorage, clamped to a sane band); first-ever run uses the default.
+const REFRESH_ETA_KEY = "mw:lastRefreshMs";
+const REFRESH_ETA_DEFAULT = 55_000;
+const REFRESH_ETA_MIN = 20_000;
+const REFRESH_ETA_MAX = 75_000;
+
+function readRefreshEta(): number {
+  if (typeof window === "undefined") return REFRESH_ETA_DEFAULT;
+  const raw = Number(window.localStorage.getItem(REFRESH_ETA_KEY));
+  if (!Number.isFinite(raw) || raw <= 0) return REFRESH_ETA_DEFAULT;
+  return Math.min(REFRESH_ETA_MAX, Math.max(REFRESH_ETA_MIN, raw));
+}
+
 type Tab = "inbox" | "starred" | "applied";
 
 const TABS: { id: Tab; label: string; icon: typeof Inbox }[] = [
@@ -69,6 +84,7 @@ export function JobBoard() {
   const [jobs, setJobs] = useState<JobDTO[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [refreshEta, setRefreshEta] = useState(REFRESH_ETA_DEFAULT);
   const [pending, setPending] = useState<Set<string>>(new Set());
   const [hasProfile, setHasProfile] = useState<boolean | null>(null);
   const [showFilters, setShowFilters] = useState(false);
@@ -170,7 +186,9 @@ export function JobBoard() {
   }, []);
 
   const handleRefresh = useCallback(async () => {
+    setRefreshEta(readRefreshEta());
     setRefreshing(true);
+    const t0 = performance.now();
     try {
       const res = await fetch("/api/jobs/refresh", { method: "POST" });
       const data = await res.json();
@@ -178,6 +196,11 @@ export function JobBoard() {
         toast.error(data.error ?? "Refresh failed.");
         return;
       }
+      // Remember how long a successful run took so the next ETA self-tunes.
+      window.localStorage.setItem(
+        REFRESH_ETA_KEY,
+        String(Math.round(performance.now() - t0)),
+      );
       const result = data as RefreshResult;
       const spent = result.tokens?.charged ?? 0;
       const spentText =
@@ -523,7 +546,9 @@ export function JobBoard() {
 
       {/* ── Results ───────────────────────────────────────────────── */}
       <section className="!mt-0">
-        {loading ? (
+        {refreshing ? (
+          <RefreshProgress etaMs={refreshEta} />
+        ) : loading ? (
           <div className="grid gap-4">
             {[0, 1, 2].map((i) => (
               <Skeleton key={i} className="h-40 rounded-2xl" />
