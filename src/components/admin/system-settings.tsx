@@ -13,6 +13,7 @@ import { StatusBadge } from "@/components/admin/admin-ui";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 
 type ProviderId = "claude" | "gemini" | "groq";
@@ -218,14 +219,12 @@ function ScoringProviderToggle({
           </p>
         )}
       </div>
-      <Button
-        size="sm"
-        variant={on ? "default" : "outline"}
+      <Switch
+        checked={on}
         disabled={disabled}
-        onClick={onToggle}
-      >
-        {on ? "On" : "Off"}
-      </Button>
+        onCheckedChange={onToggle}
+        aria-label="Run job scoring on Groq"
+      />
     </div>
   );
 }
