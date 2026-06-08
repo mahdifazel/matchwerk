@@ -8,7 +8,7 @@ import {
 } from "@/lib/platform";
 
 const schema = z.object({
-  keyName: z.enum(["ANTHROPIC_API_KEY", "GEMINI_API_KEY"]),
+  keyName: z.enum(["ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GROQ_API_KEY"]),
   // Empty string clears the stored key (falls back to env if present).
   value: z.string(),
 });

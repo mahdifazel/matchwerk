@@ -1,6 +1,6 @@
 import type { Seniority } from "@/generated/prisma/enums";
 
-export type AiProviderId = "claude" | "gemini";
+export type AiProviderId = "claude" | "gemini" | "groq";
 
 export type ParsedCvProfile = {
   summary: string;

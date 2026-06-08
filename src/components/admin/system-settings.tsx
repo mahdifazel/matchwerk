@@ -15,7 +15,10 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
-type ProviderId = "claude" | "gemini";
+type ProviderId = "claude" | "gemini" | "groq";
+
+// Canonical fallback priority — Groq (free) sits between Gemini and Claude.
+const FALLBACK_ORDER: ProviderId[] = ["gemini", "groq", "claude"];
 
 type Provider = {
   id: ProviderId;
@@ -75,7 +78,7 @@ export function SystemSettings() {
     if (!config) return;
     saveConfig({
       active: id,
-      fallback: ["claude", "gemini"],
+      fallback: FALLBACK_ORDER,
       enabled: { ...config.enabled, [id]: true },
     });
   }
@@ -87,7 +90,7 @@ export function SystemSettings() {
       toast.error("Can't disable the active provider. Switch active first.");
       return;
     }
-    saveConfig({ active: config.active, fallback: ["claude", "gemini"], enabled: nextEnabled });
+    saveConfig({ active: config.active, fallback: FALLBACK_ORDER, enabled: nextEnabled });
   }
 
   return (

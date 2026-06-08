@@ -2,24 +2,28 @@ import { getAppSetting, setAppSetting } from "@/lib/platform";
 import { logAiAttempt } from "@/lib/request-log";
 import { CLAUDE_MODELS, claudeProvider } from "./claude";
 import { GEMINI_MODELS, geminiProvider } from "./gemini";
+import { GROQ_MODELS, groqProvider } from "./groq";
 import type { AiProvider, AiProviderId } from "./types";
 
 export const AI_PROVIDERS: Record<AiProviderId, AiProvider> = {
   claude: claudeProvider,
   gemini: geminiProvider,
+  groq: groqProvider,
 };
 
 /** Canonical display order. */
-export const AI_PROVIDER_ORDER: AiProviderId[] = ["claude", "gemini"];
+export const AI_PROVIDER_ORDER: AiProviderId[] = ["gemini", "groq", "claude"];
 
 const MODELS: Record<AiProviderId, { cvParse: string; scoring: string }> = {
   claude: CLAUDE_MODELS,
   gemini: GEMINI_MODELS,
+  groq: GROQ_MODELS,
 };
 
 const ENV_KEY_NAME: Record<AiProviderId, string> = {
   claude: "ANTHROPIC_API_KEY",
   gemini: "GEMINI_API_KEY",
+  groq: "GROQ_API_KEY",
 };
 
 export type AiConfig = {
@@ -32,15 +36,37 @@ export type AiConfig = {
 const SETTING_KEY = "ai_providers";
 const DEFAULT_CONFIG: AiConfig = {
   active: "claude",
-  fallback: ["claude", "gemini"],
-  enabled: { claude: true, gemini: true },
+  // Canonical priority — Groq (free) sits between Gemini and Claude.
+  fallback: ["gemini", "groq", "claude"],
+  enabled: { claude: true, gemini: true, groq: true },
 };
+
+/**
+ * Repair a stored fallback array so a newly-added provider is honoured without a
+ * manual re-save: drop unknown ids, then insert any missing known provider at its
+ * canonical position (from DEFAULT_CONFIG.fallback). E.g. a pre-Groq stored value
+ * `["claude","gemini"]` becomes `["groq","claude","gemini"]`.
+ */
+function reconcileFallback(stored?: AiProviderId[]): AiProviderId[] {
+  const canonical = DEFAULT_CONFIG.fallback;
+  const base = (stored?.length ? stored : canonical).filter((id) =>
+    canonical.includes(id),
+  );
+  for (const id of canonical) {
+    if (base.includes(id)) continue;
+    const rank = canonical.indexOf(id);
+    const at = base.findIndex((b) => canonical.indexOf(b) > rank);
+    if (at === -1) base.push(id);
+    else base.splice(at, 0, id);
+  }
+  return base;
+}
 
 export async function getAiConfig(): Promise<AiConfig> {
   const cfg = await getAppSetting<Partial<AiConfig>>(SETTING_KEY, DEFAULT_CONFIG);
   return {
     active: cfg.active ?? DEFAULT_CONFIG.active,
-    fallback: cfg.fallback ?? DEFAULT_CONFIG.fallback,
+    fallback: reconcileFallback(cfg.fallback),
     enabled: { ...DEFAULT_CONFIG.enabled, ...cfg.enabled },
   };
 }
