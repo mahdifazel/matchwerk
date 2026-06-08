@@ -107,18 +107,31 @@ async function runRefresh() {
     TOKEN.MAX_SEARCH_JOBS,
   );
 
-  // 3a. Split into repeats (already in the user's DB by exact hash) and fresh.
+  // 3a. Split into repeats (already in the user's DB) and fresh. A candidate is
+  // a repeat if it matches an existing row by EITHER the text-derived dedupeHash
+  // OR the stable (source, externalId) pair. The externalId guard is what stops
+  // an already-applied/starred listing from reappearing when an aggregator
+  // re-massages its title/location text between fetches (which shifts the hash).
   // Repeats are billed for re-display but never re-scored; DELETED rows count as
   // repeats too, so hidden/removed jobs stay excluded and cheap.
   const existing = await prisma.job.findMany({
-    where: { userId, dedupeHash: { in: considered.map((j) => j.dedupeHash) } },
-    select: { dedupeHash: true },
+    where: {
+      userId,
+      OR: [
+        { dedupeHash: { in: considered.map((j) => j.dedupeHash) } },
+        { externalId: { in: considered.map((j) => j.externalId) } },
+      ],
+    },
+    select: { dedupeHash: true, source: true, externalId: true },
   });
   const existingHashes = new Set(existing.map((e) => e.dedupeHash));
-  const repeatsCount = considered.filter((j) =>
-    existingHashes.has(j.dedupeHash),
-  ).length;
-  let fresh = considered.filter((j) => !existingHashes.has(j.dedupeHash));
+  const sourceKey = (j: { source: string; externalId: string }) =>
+    `${j.source}::${j.externalId}`;
+  const existingSourceKeys = new Set(existing.map(sourceKey));
+  const isRepeat = (j: (typeof considered)[number]) =>
+    existingHashes.has(j.dedupeHash) || existingSourceKeys.has(sourceKey(j));
+  const repeatsCount = considered.filter(isRepeat).length;
+  let fresh = considered.filter((j) => !isRepeat(j));
 
   // 3b. Also drop anything that LOOKS LIKE a starred or applied job — handles cross-source
   // title variants (e.g. "Senior PD" vs "Senior PD - parental leave cover" at the same company).
