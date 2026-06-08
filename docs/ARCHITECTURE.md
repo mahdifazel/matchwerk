@@ -216,16 +216,19 @@ POST /api/jobs/refresh
    ├─► getSettings()
    │
    ▼
-searchEnabledSources({ jobTitles, locations }, settings.defaultSources)
+searchEnabledSources({ jobTitles, locations }, enabledSourceIds)
    │
-   ├─► Tier 1 (primary)  : BA + JSearch + Fantastic.jobs ──► Promise.all
-   └─► Tier 2 (backup)   : Adzuna + Jooble  ── runs only if Tier 1 < 10 results
+   ├─► ALL enabled sources in parallel ──► Promise.all (no tier gate)
+   │   (BA + JSearch + Fantastic.jobs + Adzuna + Jooble)
+   └─► freshness net: drop > max-age (default 40d, Jooble 14d; null date kept)
    │
    ▼
 dedupeRawJobs        ── collapse cross-source dupes by SHA-1 hash
    │
    ▼
-findMany({ dedupeHash IN … })   ── drop anything already in DB (any status)
+findMany({ dedupeHash IN … OR (source, externalId) IN … })
+                     ── repeats = already in DB (any status) by hash OR source id;
+                        the (source,externalId) match survives aggregator text drift
    │
    ▼
 isLikelySameJob() vs starred+applied   ── drop cross-source title variants
@@ -235,7 +238,9 @@ preference filter    ── drop jobs that contradict Settings.defaultSeniority
                         / defaultJobTypes when narrowed (UNKNOWN passes)
    │
    ▼
-scoreJobs(profile, titles, prefs, fresh)  ── batches of 10 → Claude Haiku 4.5
+scoreJobs(profile, titles, prefs, fresh)  ── batches of 10 → runScoringWithAi
+   │                                          (default Claude Haiku 4.5; Groq
+   │                                          when scoring-on-Groq is enabled)
    │                                          system prompt: role-agnostic +
    │                                          USER PREFERENCES (seniority,
    │                                          jobTypes, locations from Settings)
@@ -571,8 +576,8 @@ The design system lives entirely in `src/app/globals.css` under `@theme inline` 
 - **Multi-tenant with Auth.js v5.** Google + email/password; JWT session. Every row is `userId`-scoped — there is no `"singleton"` id any more (`Profile` / `Settings` are `userId @unique`). Page routes gated by `src/proxy.ts`, API routes by `getSessionUserId()`. Legacy single-tenant rows are claimed by the first account.
 - **In-app token economy + Stripe (2026-05-25).** `src/lib/tokens.ts` meters AI usage (300-token signup grant; charges for CV parse and research) and tokens are now **purchasable via Stripe** (sandbox) on `/plans`. `charge()` still floors at 0 and records overspend as debt, but two **balance gates** (`src/lib/limits.ts`) now refuse CV parse below 25 tokens and Research at 0.
 - **Real jobs only.** No fixtures, no mock data. Stubs return empty arrays rather than fake rows.
-- **Multi-provider AI (2026-05-25).** A provider abstraction (`src/lib/ai/*`, `runWithAi`) routes CV parse + scoring through the active provider (Claude Sonnet/Haiku or Gemini Flash) with a fallback chain, switchable in admin. Claude keeps the ephemeral cache on the CV system block.
-- **Tool-use / structured output over JSON parsing.** Claude uses tool-use with `tool_choice` forced; Gemini uses `responseSchema` JSON — both return a typed object, no JSON-from-text regex.
+- **Multi-provider AI.** A provider abstraction (`src/lib/ai/*`, `runWithAi`) routes CV parse + scoring through the active provider (Claude Sonnet/Haiku, Gemini Flash, or **Groq / free Llama 3.3**) with a fallback chain (default Gemini → Groq → Claude), switchable in admin. Claude keeps the ephemeral cache on the CV system block. Scoring can optionally run on its own provider via `runScoringWithAi` + the `scoringActive` config ("Run job scoring on Groq" toggle) while CV parse stays on the quality chain. Gemini retries transient 503/429s before the chain falls through.
+- **Tool-use / structured output over JSON parsing.** Claude uses tool-use with `tool_choice` forced; Gemini uses `responseSchema` JSON; Groq uses OpenAI `json_object` mode with tolerant parsing — all return a typed object, no JSON-from-text regex.
 - **Role-agnostic scoring.** The system prompt derives the candidate's profession from `Settings.jobTitles[0]` and the CV — no hardcoded profession — so a new CV genuinely retargets matching.
 - **Tier-driven orchestrator.** Adding a source = adding an enum value + an adapter; the orchestrator picks it up automatically.
 - **DB-backed credentials with env fallback.** `getSourceCredentials(sourceId)` resolves DB → env. Saved keys take effect on the next refresh; clearing the DB row falls back to env.

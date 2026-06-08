@@ -81,6 +81,8 @@ system: [
 
 ## 7. The 10-result backup threshold
 
+> **Superseded.** The threshold gate was removed — `searchEnabledSources` now runs **every enabled source in parallel** (recall-first; source priority is enforced downstream at dedup + the lexical pre-rank, not by skipping sources). Stale-listing cost is instead bounded by a per-source **freshness net** in `search.ts` (`MAX_JOB_AGE_DAYS`: default 40 days, Jooble 14; Adzuna/BA also cap natively). The original decision is kept below for history.
+
 **Decision.** `PRIMARY_SUFFICIENT_THRESHOLD = 10`. If the primary tier returns ≥ 10 jobs, backups are skipped.
 
 **Why.** Adzuna and Jooble exist to plug gaps. When BA + JSearch + Fantastic.jobs already return dozens of listings, querying the backups adds cost (extra API quota) for marginal extra signal — most of which would dedupe away anyway. 10 is small enough to trip when one or two primaries are misbehaving but large enough that a normal day doesn't tax the backups.
