@@ -8,6 +8,7 @@ const API_KEY = "jobboerse-jobsuche";
 const PAGE_SIZE = 50;
 const MAX_PAGES = 4; // up to 200 jobs per title × location query
 const MAX_TITLES = 5;
+const PUBLISHED_SINCE_DAYS = 40; // veroeffentlichtseit cap (API max 100)
 
 type BaArbeitsort = {
   ort?: string;
@@ -71,6 +72,7 @@ async function fetchOnePage(
   url.searchParams.set("was", was);
   url.searchParams.set("page", String(page));
   url.searchParams.set("size", String(PAGE_SIZE));
+  url.searchParams.set("veroeffentlichtseit", String(PUBLISHED_SINCE_DAYS));
   if (target.wo) {
     url.searchParams.set("wo", target.wo);
     url.searchParams.set("umkreis", "30");
