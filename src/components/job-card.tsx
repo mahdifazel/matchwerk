@@ -91,6 +91,14 @@ export function JobCard({
                 <span key={m}>{m}</span>
               ))}
             </p>
+            {job.publisher && (
+              <p className="text-muted-foreground mt-2 text-[0.8rem]">
+                via{" "}
+                <span className="text-foreground/70 font-medium">
+                  {job.publisher}
+                </span>
+              </p>
+            )}
           </div>
           <ScoreMeter score={score} />
         </div>
