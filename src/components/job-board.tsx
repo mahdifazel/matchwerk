@@ -70,6 +70,28 @@ function readRefreshEta(): number {
   return Math.min(REFRESH_ETA_MAX, Math.max(REFRESH_ETA_MIN, raw));
 }
 
+// Soft-cleared job IDs persist across reloads so "Clear List" stays cleared
+// until the next Research (which resets it). Memory-only would reset on reload
+// and bring every hidden row back from the DB.
+const CLEARED_IDS_KEY = "mw:clearedJobIds";
+
+function readClearedIds(): Set<string> {
+  if (typeof window === "undefined") return new Set();
+  try {
+    const raw = window.localStorage.getItem(CLEARED_IDS_KEY);
+    const arr = raw ? (JSON.parse(raw) as unknown) : [];
+    return new Set(Array.isArray(arr) ? arr.filter((x): x is string => typeof x === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function writeClearedIds(ids: Set<string>): void {
+  if (typeof window === "undefined") return;
+  if (ids.size === 0) window.localStorage.removeItem(CLEARED_IDS_KEY);
+  else window.localStorage.setItem(CLEARED_IDS_KEY, JSON.stringify([...ids]));
+}
+
 type Tab = "inbox" | "starred" | "applied";
 
 const TABS: { id: Tab; label: string; icon: typeof Inbox }[] = [
@@ -94,9 +116,15 @@ export function JobBoard() {
   const [clearOpen, setClearOpen] = useState(false);
   // IDs the user has "Cleared" from the Inbox view. Soft-hide only — the rows
   // stay in the DB. We filter fetched jobs through this ref on every load so a
-  // tab switch doesn't bring them back; a fresh Research click resets it so
-  // they reappear (along with any new fresh listings).
-  const clearedIdsRef = useRef<Set<string>>(new Set());
+  // tab switch (or a full reload) doesn't bring them back; a fresh Research
+  // click resets it so they reappear (along with any new fresh listings).
+  // Persisted in localStorage so the cleared state survives a page reload.
+  // Lazily hydrated from storage on first use (never during render).
+  const clearedIdsRef = useRef<Set<string> | null>(null);
+  const getClearedIds = useCallback(() => {
+    if (clearedIdsRef.current === null) clearedIdsRef.current = readClearedIds();
+    return clearedIdsRef.current;
+  }, []);
   const { balance } = useTokenBalance();
 
   const fetchJobs = useCallback(
@@ -117,12 +145,13 @@ export function JobBoard() {
         if (signal?.aborted) return;
         const data = await res.json();
         const incoming: JobDTO[] = data.jobs ?? [];
-        // Suppress jobs the user soft-cleared from the Inbox earlier in this
-        // session; Research clears the ref so they come back.
+        // Suppress jobs the user soft-cleared (persisted across reloads);
+        // Research clears the set so they come back.
+        const cleared = getClearedIds();
         setJobs(
-          clearedIdsRef.current.size === 0
+          cleared.size === 0
             ? incoming
-            : incoming.filter((j) => !clearedIdsRef.current.has(j.id)),
+            : incoming.filter((j) => !cleared.has(j.id)),
         );
       } catch (err) {
         // AbortError is expected — a newer filter change superseded this fetch.
@@ -132,7 +161,7 @@ export function JobBoard() {
         if (!signal?.aborted) setLoading(false);
       }
     },
-    [tab, filters],
+    [tab, filters, getClearedIds],
   );
 
   // Cancel any in-flight fetch when filters/tab change so an older, slower
@@ -216,6 +245,7 @@ export function JobBoard() {
       // A fresh Research means the user wants to see everything again, so
       // forget anything they soft-cleared from the Inbox view.
       clearedIdsRef.current = new Set();
+      writeClearedIds(clearedIdsRef.current);
       await fetchJobs();
     } catch {
       toast.error("Refresh failed.");
@@ -280,13 +310,15 @@ export function JobBoard() {
     // switch doesn't bring them back. handleRefresh resets the ref so a
     // Research click surfaces them again.
     const cleared = jobs.length;
-    for (const j of jobs) clearedIdsRef.current.add(j.id);
+    const clearedIds = getClearedIds();
+    for (const j of jobs) clearedIds.add(j.id);
+    writeClearedIds(clearedIds);
     setJobs([]);
     setClearOpen(false);
     toast.success(
       `Cleared ${cleared} job${cleared === 1 ? "" : "s"} from view. They'll come back on the next Research.`,
     );
-  }, [jobs]);
+  }, [jobs, getClearedIds]);
 
   const handleBulkUnapply = useCallback(async () => {
     const ids = jobs.map((j) => j.id);
