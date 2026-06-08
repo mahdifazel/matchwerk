@@ -9,6 +9,10 @@ export const TOKEN = {
   PER_JOB_DISPLAY: 0.5,
   PER_JOB_RATING: 1,
   MAX_SEARCH_JOBS: 150,
+  /** Cap on jobs sent to AI scoring per refresh. The lexical pre-rank picks the
+   *  top candidates from the (larger) deduped pool; only these cost rating
+   *  tokens. Slightly above MAX_BOARD_JOBS for headroom against low scorers. */
+  MAX_SCORE_CANDIDATES: 80,
   MAX_BOARD_JOBS: 70,
 } as const;
 

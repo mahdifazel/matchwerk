@@ -77,6 +77,15 @@ function seniorityIn(words: string[]): Set<string> {
 
 type JobLike = { title: string; company: string; location: string };
 
+/**
+ * Coarse key grouping jobs that *could* be the same listing (same normalized
+ * company + city). Used as a blocking key so `isLikelySameJob` only runs
+ * pairwise within a small group instead of across every pair (O(n·k) not O(n²)).
+ */
+export function companyCityBlockKey(job: JobLike): string {
+  return `${normCompany(job.company)}|${normCity(job.location)}`;
+}
+
 /** True when two jobs look like the same listing — same company+city, same seniority,
  *  and substantial title overlap. */
 export function isLikelySameJob(a: JobLike, b: JobLike): boolean {

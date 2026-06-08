@@ -6,12 +6,14 @@ import {
   LOCATION_OPTIONS,
 } from "@/lib/constants";
 import { scoreJobs } from "@/lib/matcher";
+import { prerankAndCap, type PrerankPrefs } from "@/lib/prerank";
 import { prisma } from "@/lib/prisma";
 import { getProfile, getSessionUserId, getSettings } from "@/lib/repo";
 import { charge, TOKEN } from "@/lib/tokens";
 import { getEnabledSourceIds } from "@/lib/credentials";
 import { checkResearch } from "@/lib/limits";
 import { searchEnabledSources } from "@/lib/sources";
+import { isBlockedPublisher } from "@/lib/sources/blocklist";
 import { dedupeRawJobs } from "@/lib/sources/dedupe";
 import { isLikelySameJob } from "@/lib/sources/similarity";
 
@@ -75,14 +77,35 @@ async function runRefresh() {
   // 1. Tiered fetch across enabled sources (primary → backup → fallback).
   // Which sources run is now a GLOBAL admin setting, not per-user.
   const enabledSourceIds = await getEnabledSourceIds();
-  const { jobs: allRaw, reports } = await searchEnabledSources(
+  const { jobs: fetched, reports } = await searchEnabledSources(
     { userId, jobTitles: settings.jobTitles, locations },
     enabledSourceIds,
   );
+  // Drop jobs from blocked publishers (e.g. BeBee) before dedupe, so a listing
+  // also available via an allowed publisher survives as that copy.
+  const allRaw = fetched.filter((j) => !isBlockedPublisher(j.publisher));
   const scanned = allRaw.length;
 
-  // 2. Merge cross-platform duplicates, then cap to the per-search maximum.
-  const considered = dedupeRawJobs(allRaw).slice(0, TOKEN.MAX_SEARCH_JOBS);
+  // 2. Merge cross-platform duplicates (priority-aware winner), then lexically
+  // pre-rank and cap to the per-search maximum. Pre-ranking (vs an arbitrary
+  // slice) means the best-matching jobs survive the cap and downstream `fresh`
+  // stays in relevance order, so the top-K candidate cut below is meaningful.
+  const prerankPrefs: PrerankPrefs = {
+    jobTitles: settings.jobTitles,
+    profileTerms: [
+      ...profile.skills,
+      ...profile.tools,
+      ...profile.keywords,
+      ...profile.industries,
+    ],
+    preferredSeniority: settings.defaultSeniority,
+    preferredJobTypes: settings.defaultJobTypes,
+  };
+  const considered = prerankAndCap(
+    dedupeRawJobs(allRaw),
+    prerankPrefs,
+    TOKEN.MAX_SEARCH_JOBS,
+  );
 
   // 3a. Split into repeats (already in the user's DB by exact hash) and fresh.
   // Repeats are billed for re-display but never re-scored; DELETED rows count as
@@ -136,6 +159,14 @@ async function runRefresh() {
       }
       return true;
     });
+  }
+
+  // 3d. Cap the fresh jobs that reach AI scoring to the top-K candidates. `fresh`
+  // is already in lexical-relevance order (derived by filtering the pre-ranked
+  // `considered`), so this keeps the strongest matches and bounds AI token spend
+  // + latency regardless of how many jobs were fetched.
+  if (fresh.length > TOKEN.MAX_SCORE_CANDIDATES) {
+    fresh = fresh.slice(0, TOKEN.MAX_SCORE_CANDIDATES);
   }
 
   // Skip scoring entirely if there's nothing fresh to score — bill just the

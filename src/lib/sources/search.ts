@@ -1,12 +1,7 @@
 import type { JobSourceId } from "@/generated/prisma/enums";
+import { cachedSearch } from "./cache";
 import { ALL_SOURCES } from "./index";
 import type { JobSource, RawJob, SearchParams } from "./types";
-
-/**
- * If the primary tier collectively returns fewer than this many results,
- * backup sources are also queried.
- */
-const PRIMARY_SUFFICIENT_THRESHOLD = 10;
 
 export type SourceRunReport = {
   id: JobSourceId;
@@ -27,7 +22,7 @@ async function blockedReason(
 }
 
 async function runSource(source: JobSource, params: SearchParams) {
-  return source.search(params).catch((err) => {
+  return cachedSearch(source, params).catch((err) => {
     console.error(`[search] ${source.id} failed:`, err);
     return [] as RawJob[];
   });
@@ -63,10 +58,12 @@ async function runTier(
 }
 
 /**
- * Tiered fetch driven by each source's declared `tier`:
- *   1. Primary  — run all in parallel.
- *   2. Backup   — run only if primary returns less than the threshold.
- *   3. Fallback — run unless blocked (disabled / not connected / no key).
+ * Fetch from every enabled source in parallel — recall is the priority, so we
+ * no longer gate the backup tier behind a primary-result threshold. Source
+ * priority is enforced downstream at dedup (which copy wins) and in the lexical
+ * pre-rank (which jobs survive the candidate cap), not by skipping sources.
+ * Each source is isolated (`runSource` swallows failures into `[]`), so a slow
+ * or failing source can't sink the run.
  */
 export async function searchEnabledSources(
   params: SearchParams,
@@ -76,29 +73,7 @@ export async function searchEnabledSources(
   const reports: SourceRunReport[] = [];
   const jobs: RawJob[] = [];
 
-  const primary = ALL_SOURCES.filter((s) => s.tier === "primary");
-  const backup = ALL_SOURCES.filter((s) => s.tier === "backup");
-  const fallback = ALL_SOURCES.filter((s) => s.tier === "fallback");
-
-  // Tier 1
-  const primaryCount = await runTier(primary, enabled, params, jobs, reports);
-
-  // Tier 2 — only when primary returned too few.
-  if (primaryCount >= PRIMARY_SUFFICIENT_THRESHOLD) {
-    for (const s of backup) {
-      reports.push({
-        id: s.id,
-        ran: false,
-        count: 0,
-        skippedReason: `primary returned enough results (${primaryCount})`,
-      });
-    }
-  } else {
-    await runTier(backup, enabled, params, jobs, reports);
-  }
-
-  // Tier 3
-  await runTier(fallback, enabled, params, jobs, reports);
+  await runTier(ALL_SOURCES, enabled, params, jobs, reports);
 
   return { jobs, reports };
 }
