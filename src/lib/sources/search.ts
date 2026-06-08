@@ -10,6 +10,27 @@ export type SourceRunReport = {
   skippedReason?: string;
 };
 
+// Hard freshness cap applied to every source's results, regardless of whether
+// the source's own API can express a date window. Catches sources that can't:
+// Jooble has no date param, and JSearch/Fantastic only take coarse presets.
+// Adzuna self-caps tighter (31 days) via max_days_old; the default net is a
+// no-op there. Per-source overrides below tighten where a source skews stale.
+const DEFAULT_MAX_JOB_AGE_DAYS = 40;
+const MAX_JOB_AGE_DAYS: Partial<Record<JobSourceId, number>> = {
+  JOOBLE: 14, // 2-week window — Jooble aggregates older reposts
+};
+
+function maxAgeDays(id: JobSourceId): number {
+  return MAX_JOB_AGE_DAYS[id] ?? DEFAULT_MAX_JOB_AGE_DAYS;
+}
+
+function withinFreshnessWindow(job: RawJob, cutoff: number): boolean {
+  // No publish date = freshly surfaced listing; keep it (mirrors the board's
+  // datePosted fallback to fetchedAt for null publishedAt).
+  if (!job.publishedAt) return true;
+  return job.publishedAt.getTime() >= cutoff;
+}
+
 /** Why a source can't run right now, or null if it can. */
 async function blockedReason(
   source: JobSource,
@@ -36,6 +57,7 @@ async function runTier(
   reports: SourceRunReport[],
 ): Promise<number> {
   let total = 0;
+  const now = Date.now();
   await Promise.all(
     sources.map(async (source) => {
       const reason = await blockedReason(source, enabled);
@@ -48,7 +70,10 @@ async function runTier(
         });
         return;
       }
-      const result = await runSource(source, params);
+      const cutoff = now - maxAgeDays(source.id) * 24 * 60 * 60 * 1000;
+      const result = (await runSource(source, params)).filter((job) =>
+        withinFreshnessWindow(job, cutoff),
+      );
       jobs.push(...result);
       total += result.length;
       reports.push({ id: source.id, ran: true, count: result.length });

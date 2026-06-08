@@ -13,6 +13,9 @@ const RESULTS_PER_PAGE = 50; // Adzuna's max
 // pages (≤100 per title × location) — the priority-weighted candidate interleave
 // (see prerank.ts) does the rest of the balancing.
 const MAX_PAGES = 2;
+// Adzuna self-caps at 31 days via max_days_old (tighter than the 40-day net the
+// orchestrator applies to the other sources — see MAX_JOB_AGE_DAYS in search.ts).
+const MAX_DAYS_OLD = 31;
 
 /** Distinct `where` values derived from the selected locations. */
 function buildWheres(params: SearchParams): (string | null)[] {
@@ -61,7 +64,7 @@ async function fetchOnePage(
   url.searchParams.set("what", what);
   if (where) url.searchParams.set("where", where);
   url.searchParams.set("results_per_page", String(RESULTS_PER_PAGE));
-  // No max_days_old — return listings regardless of post date.
+  url.searchParams.set("max_days_old", String(MAX_DAYS_OLD));
   url.searchParams.set("content-type", "application/json");
 
   const res = await fetchWithTimeout(url, { cache: "no-store" });
