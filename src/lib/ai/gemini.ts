@@ -78,6 +78,39 @@ function parseJson<T>(text: string | undefined, fallback: T): T {
   }
 }
 
+// Ride out Google's transient capacity rejections (the "high demand" 503s, plus
+// 429s / UNAVAILABLE / RESOURCE_EXHAUSTED) with a short jittered backoff before
+// runWithAi gives up on Gemini and falls back to Claude. Kept small so it stays
+// well under the matcher's scoring deadline. Non-transient errors throw at once.
+const MAX_ATTEMPTS = 3; // initial + 2 retries
+const BASE_DELAY_MS = 400;
+const TRANSIENT_RE =
+  /\b(429|503)\b|unavailable|overloaded|high demand|resource[\s_]?exhausted|rate[\s-]?limit/i;
+
+function isTransient(err: unknown): boolean {
+  const code =
+    (err as { status?: number; code?: number })?.status ??
+    (err as { code?: number })?.code;
+  if (code === 429 || code === 503) return true;
+  const msg = err instanceof Error ? err.message : String(err);
+  return TRANSIENT_RE.test(msg);
+}
+
+async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (attempt === MAX_ATTEMPTS - 1 || !isTransient(err)) throw err;
+      const delay = BASE_DELAY_MS * 2 ** attempt + Math.random() * 200;
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+  throw lastErr;
+}
+
 export const geminiProvider: AiProvider = {
   id: "gemini",
   label: "Gemini Flash (Google)",
@@ -98,25 +131,29 @@ export const geminiProvider: AiProvider = {
 
   async parseCvProfile(rawText: string): Promise<ParsedCvProfile> {
     const ai = await client();
-    const res = await ai.models.generateContent({
-      model: GEMINI_MODELS.cvParse,
-      contents: `Extract a structured profile from this CV. Focus on what's relevant for matching roles.\n\n--- CV TEXT ---\n${rawText.slice(0, 24000)}`,
-      config: { responseMimeType: "application/json", responseSchema: CV_SCHEMA },
-    });
+    const res = await withRetry(() =>
+      ai.models.generateContent({
+        model: GEMINI_MODELS.cvParse,
+        contents: `Extract a structured profile from this CV. Focus on what's relevant for matching roles.\n\n--- CV TEXT ---\n${rawText.slice(0, 24000)}`,
+        config: { responseMimeType: "application/json", responseSchema: CV_SCHEMA },
+      }),
+    );
     return normalizeCvProfile(parseJson<Partial<ParsedCvProfile>>(res.text, {}));
   },
 
   async scoreBatch(systemPrompt: string, userPrompt: string): Promise<RawJobScore[]> {
     const ai = await client();
-    const res = await ai.models.generateContent({
-      model: GEMINI_MODELS.scoring,
-      contents: userPrompt,
-      config: {
-        systemInstruction: systemPrompt,
-        responseMimeType: "application/json",
-        responseSchema: SCORES_SCHEMA,
-      },
-    });
+    const res = await withRetry(() =>
+      ai.models.generateContent({
+        model: GEMINI_MODELS.scoring,
+        contents: userPrompt,
+        config: {
+          systemInstruction: systemPrompt,
+          responseMimeType: "application/json",
+          responseSchema: SCORES_SCHEMA,
+        },
+      }),
+    );
     return parseJson<{ scores?: RawJobScore[] }>(res.text, {}).scores ?? [];
   },
 };

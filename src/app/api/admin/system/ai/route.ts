@@ -18,11 +18,15 @@ export async function GET() {
   return NextResponse.json({ providers, config });
 }
 
-const providerId = z.enum(["claude", "gemini"]);
+const providerId = z.enum(["claude", "gemini", "groq"]);
 const putSchema = z.object({
   active: providerId,
   fallback: z.array(providerId),
-  enabled: z.object({ claude: z.boolean(), gemini: z.boolean() }),
+  enabled: z.object({
+    claude: z.boolean(),
+    gemini: z.boolean(),
+    groq: z.boolean(),
+  }),
 });
 
 export async function PUT(request: Request) {

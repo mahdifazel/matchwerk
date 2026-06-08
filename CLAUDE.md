@@ -228,7 +228,7 @@ Order: starred/inbox sort by `matchScore DESC, fetchedAt DESC`; applied sorts by
 
 ### AI providers (`src/lib/ai/*`)
 - `runWithAi(fn, op?)` tries the **active** provider then the **fallback chain** (enabled + configured only), logging each attempt to `RequestLog`. Providers (`claude`, `gemini`) implement `parseCvProfile`, `scoreBatch`, `ping` + `isConfigured`.
-- Config (active / fallback / enabled) lives in `AppSetting "ai_providers"`; keys (`ANTHROPIC_API_KEY`, `GEMINI_API_KEY`) in `PlatformCredential`→env. Managed in **Admin → System Settings → AI providers** (`/api/admin/system/ai` + `/key`). No redeploy to switch.
+- Config (active / fallback / enabled) lives in `AppSetting "ai_providers"`; keys (`ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY`) in `PlatformCredential`→env. Managed in **Admin → System Settings → AI providers** (`/api/admin/system/ai` + `/key`). No redeploy to switch. Providers (`claude`, `gemini`, `groq`); default fallback chain is Gemini → Groq → Claude. Groq (`src/lib/ai/groq.ts`) is a free Llama 3.3 tier via Groq's OpenAI-compatible API (plain `fetch`, no SDK).
 
 ### Admin backoffice & roles
 - `UserRole` (`USER`/`ADMIN`/`SUPER_ADMIN`) + `disabledAt` on `User`. Super Admin bootstrapped via `SUPER_ADMIN_EMAILS` (promoted in the `jwt` callback on sign-in). Role is **DB-authoritative**: guards in `src/lib/admin.ts` (`requireAdminPage`, `getAdminUser`, `getSuperAdminUser`) read the DB; the session carries role only for client UI. Every privileged action calls `logAdminAction` → `AdminAuditLog`.
@@ -338,6 +338,7 @@ npm run dev   # http://localhost:3000
 | `AUTH_SECRET` | Auth.js (NextAuth) | ✅ Required. Signs the session JWT + the impersonation cookie. Generate with `npx auth secret` (or `openssl rand -base64 33`). |
 | `SUPER_ADMIN_EMAILS` | `src/auth.ts` | Optional, comma-separated. Emails promoted to `SUPER_ADMIN` on sign-in — bootstraps admin access. |
 | `GEMINI_API_KEY` | Gemini provider (`src/lib/ai/gemini.ts`) | Optional. Enables the Gemini Flash provider (switch/fallback in admin). Fallback for the admin-stored key. |
+| `GROQ_API_KEY` | Groq provider (`src/lib/ai/groq.ts`) | Optional. Free fallback provider (Llama 3.3 via Groq's OpenAI-compatible API). Default fallback order is Gemini → Groq → Claude. Key at console.groq.com. Fallback for the admin-stored key. |
 | `STRIPE_SECRET_KEY` | `src/lib/stripe.ts` | Optional. `sk_test_…` works as-is; `sk_live_…` is accepted **only with `STRIPE_ALLOW_LIVE=true`**. Enables token purchases. |
 | `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | `src/components/checkout-embed.tsx` | **Required** when payments are enabled. `pk_test_…` for dev, `pk_live_…` for prod. Used on the client to mount Stripe Embedded Checkout on `/checkout/[planId]`. Stripe Dashboard → Developers → API keys. Without it, the embed renders an inline error and Stripe can't load. |
 | `STRIPE_ALLOW_LIVE` | `src/lib/stripe.ts` | Optional. `"true"` opts into real charges with a live key — required for live mode, prevents accidental live use otherwise. |
