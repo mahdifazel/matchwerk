@@ -27,6 +27,8 @@ const putSchema = z.object({
     gemini: z.boolean(),
     groq: z.boolean(),
   }),
+  // Optional per-operation override for scoring; null = use the normal chain.
+  scoringActive: providerId.nullable(),
 });
 
 export async function PUT(request: Request) {
