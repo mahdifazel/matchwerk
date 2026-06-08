@@ -27,6 +27,7 @@ Derived from the codebase:
    - `ANTHROPIC_API_KEY` (required for the Claude AI path — CV upload + scoring; or set `GEMINI_API_KEY` and make Gemini the active provider in admin)
    - `SUPER_ADMIN_EMAILS` (optional, comma-separated — bootstraps admin access; set this to reach `/admin` at all)
    - `GEMINI_API_KEY` (optional — enables the Gemini AI provider)
+   - `GROQ_API_KEY` (optional — enables the free Groq / Llama 3.3 fallback provider; default chain is Gemini → Groq → Claude)
    - `STRIPE_SECRET_KEY` + `STRIPE_WEBHOOK_SECRET` (optional — token purchases). Test keys (`sk_test_…`) work as-is. **For live payments** set a `sk_live_…` key **and** `STRIPE_ALLOW_LIVE=true` (the app refuses a live key without that opt-in), plus `STRIPE_WEBHOOK_SECRET` from a **live** endpoint registered at `https://<host>/api/stripe/webhook`. Live mode also needs an activated Stripe account and is your responsibility for VAT/tax + terms.
    - `AUTH_GOOGLE_ID` + `AUTH_GOOGLE_SECRET` (optional — Google sign-in; register the prod redirect URI `https://<host>/api/auth/callback/google`. Email/password works without it.)
    - `JSEARCH_API_KEY`, `FANTASTIC_JOBS_API_KEY`, `ADZUNA_APP_ID`, `ADZUNA_APP_KEY`, `JOOBLE_API_KEY` (optional, per source — env fallbacks; can also be set in admin)

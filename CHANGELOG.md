@@ -5,7 +5,23 @@ All notable changes to this project are documented here. Format follows [Keep a 
 ## [Unreleased]
 
 Multi-tenancy with Auth.js, an in-app token economy, **Stripe payments**, a
-**multi-provider AI layer (Claude + Gemini)**, and a full **admin backoffice**.
+**multi-provider AI layer (Claude + Gemini + Groq)**, and a full **admin backoffice**.
+
+### Added — Groq provider + per-operation scoring split
+
+- **Groq as a free fallback provider** (`src/lib/ai/groq.ts`) — Llama 3.3 via Groq's OpenAI-compatible API (plain `fetch`, no SDK). Registered alongside Claude/Gemini; default fallback chain is **Gemini → Groq → Claude**. New `GROQ_API_KEY` (DB-stored or env). `getAiConfig` runs `reconcileFallback` so a newly-added provider lands at its canonical chain position without a manual re-save.
+- **Opt-in "Run job scoring on Groq" toggle** (Admin → System Settings, a Switch). Adds `scoringActive` to the AI config + a `runScoringWithAi` lane: when on, job scoring leads with Groq (then falls through the normal chain) while CV parsing stays on the active/quality chain. Default off = identical to prior behavior. Toggle requires Groq configured + enabled.
+- **Gemini transient retry** — rides out 503 "high demand" / 429 / `UNAVAILABLE` / `RESOURCE_EXHAUSTED` with a short jittered backoff before the chain falls through, so a brief spike no longer silently diverts traffic to Claude. `ping()` stays single-shot.
+
+### Changed — source orchestration & freshness
+
+- **Parallel orchestration, no tier gate.** `searchEnabledSources` now runs **every enabled source in parallel** (the "backup only if primary < 10" threshold was removed; priority is enforced at dedup + lexical pre-rank). Supersedes DECISIONS #7.
+- **Per-source freshness net** in `search.ts` (`MAX_JOB_AGE_DAYS`): drop listings older than a max age before scoring/persistence — default **40 days**, **Jooble 14**; jobs with no publish date are kept. Adzuna caps natively at **31 days** (`max_days_old`), BA Jobbörse at **40** (`veroeffentlichtseit`) to save upstream quota.
+
+### Fixed — applied/starred jobs reappearing + Clear List persistence
+
+- **Repeat detection now matches `(source, externalId)` as well as `dedupeHash`** in `/api/jobs/refresh`, so an already-applied/starred listing no longer returns when an aggregator re-massages its title/location text between fetches (which shifted the text hash).
+- **"Clear List" survives a reload.** The soft-cleared IDs are persisted in `localStorage` (`mw:clearedJobIds`) instead of a memory-only ref, so the cleared view stays clear across reloads/tab switches; a Research run still resets it.
 
 ### Removed — JobSpy scraping fallback
 

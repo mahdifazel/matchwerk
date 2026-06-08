@@ -13,9 +13,9 @@ A multi-tenant AI job-search web app for Product Design (and other) roles in Ger
 - **Admin backoffice** (`/admin`, role-gated). User management (search/filter, activate/deactivate, token grant/deduct, refunds, GDPR export/erase, impersonate), an analytics dashboard (CSV + PDF export), plans & pricing editor, system settings (AI providers, job-source keys, rate limits, budget alerts), API health monitoring, announcements, a Stripe-events inspector, and role management. Roles: `USER` / `ADMIN` / `SUPER_ADMIN`.
 - **Editable profile.** Skills, tools, industries, languages, keywords, and the summary are all editable in Settings without re-uploading the CV (PATCH on `/api/cv`).
 - **Personalized matching, end-to-end.** Search queries come from your saved job titles; scoring derives the candidate role from the CV (no hardcoded profession) and factors in your seniority / job-type / location preferences. Upload a CV for a different role and the system retargets — the next refresh stops surfacing the old profession.
-- **Six real job sources** ([details](#job-sources)). Sources without API credentials surface as disabled — no fixture data is ever shown.
+- **Five real job sources** ([details](#job-sources)). Sources without API credentials surface as disabled — no fixture data is ever shown.
 - **Admin-managed source keys.** API keys for JSearch, Fantastic.jobs, Adzuna, and Jooble are global platform secrets managed in the admin backoffice (**System Settings → Job sources**), resolved DB-first with `.env.local` fallback and returned masked. (The old per-user editor in client Settings was removed in favor of central management.)
-- **Tiered orchestration.** Primary sources run in parallel; backup runs only when the primary tier is short; an open-source scraping fallback is wired but rate-limit-aware.
+- **Parallel orchestration with a freshness net.** All enabled sources run in parallel (recall-first; source priority is enforced at dedup + lexical pre-rank, not by skipping sources). A per-source freshness cap drops stale listings before scoring — default 40 days, Jooble 14, with Adzuna (31) and BA Jobbörse (40) also capping natively to save quota.
 - **Cross-source deduplication.** A SHA-1 hash of `normalize(title)|normalize(company)|normalize(city)` (with gender markers like `(m/w/d)` stripped) collapses duplicates from different boards.
 - **Smart protection.** Cross-source title variants of jobs you've starred or applied to are filtered out before scoring — *"Senior Product Designer"* and *"Senior Product Designer — parental leave cover"* at the same company in the same city don't both show up.
 - **AI match scoring.** The active provider (Claude Haiku 4.5 by default) scores every new job 0–100, batched, with the CV cached as an ephemeral system block (on Claude) so the same profile isn't paid for across batches. Each job gets a one-sentence explanation and a list of missing skills.
@@ -111,14 +111,14 @@ Two gitignored files. See `.env.example` for the canonical list and inline docs.
 | **BA Jobbörse** (Bundesagentur für Arbeit) | primary | free, public, no key | Authoritative for German listings. Up to 200 jobs per title × location query. |
 | **JSearch** | primary | RapidAPI key | Aggregates LinkedIn / Indeed / Glassdoor / ZipRecruiter. |
 | **Fantastic.jobs** (Active Jobs DB) | primary | RapidAPI key | 3M+ career-site listings via 54 ATS platforms (Workday, Greenhouse, Ashby, …). Hourly refresh. Title filter is a Postgres tsquery. |
-| **Adzuna** | backup | free credentials | Germany/EU coverage. Queried only when the primary tier collectively returns fewer than 10 results. |
-| **Jooble** | backup | free API key | EU-wide aggregator (jooble.org). Same trigger as Adzuna — runs alongside it when the primary tier returns fewer than 10 results. |
+| **Adzuna** | backup | free credentials | Germany/EU coverage. Runs in parallel with every other enabled source; caps natively at 31 days (`max_days_old`). |
+| **Jooble** | backup | free API key | EU-wide aggregator (jooble.org). Runs in parallel; capped to a 14-day freshness window by the orchestrator. |
 
 Adding a source requires (a) a new value on the `JobSourceId` Prisma enum + migration, (b) a new adapter implementing the `JobSource` interface, (c) entries in `ALL_SOURCES` and `SOURCE_META`, (d) an env var stub. The orchestrator picks it up automatically.
 
 ## Tech stack
 
-Next.js 16 · React 19 · TypeScript · Tailwind 4 · shadcn/ui · `@base-ui/react` · Prisma 7 · PostgreSQL 16 · Auth.js v5 · Anthropic SDK + Google GenAI (Gemini) · Stripe · pdf-lib · Zod · Sonner. Fonts via `next/font/google`: Inter, Fraunces, JetBrains Mono.
+Next.js 16 · React 19 · TypeScript · Tailwind 4 · shadcn/ui · `@base-ui/react` · Prisma 7 · PostgreSQL 16 · Auth.js v5 · Anthropic SDK + Google GenAI (Gemini) + Groq (free Llama, OpenAI-compatible REST) · Stripe · pdf-lib · Zod · Sonner. Fonts via `next/font/google`: Inter, Fraunces, JetBrains Mono.
 
 ## Project structure
 
@@ -131,8 +131,8 @@ src/app/api/admin/       # Admin APIs (role-guarded)
 src/components/          # UI components (job board, cards, settings forms, theme)
 src/components/admin/    # Admin UI components
 src/components/ui/       # shadcn primitives
-src/lib/ai/              # AI provider abstraction (claude, gemini, runWithAi)
-src/lib/sources/         # Source adapters + tiered orchestrator + dedupe + similarity
+src/lib/ai/              # AI provider abstraction (claude, gemini, groq, runWithAi)
+src/lib/sources/         # Source adapters + parallel orchestrator + dedupe + similarity
 src/lib/platform.ts      # Global config (AppSetting) + secrets (PlatformCredential)
 src/lib/matcher.ts       # Batched job scoring (via the active AI provider)
 src/lib/cv-parser.ts     # PDF/DOCX/TXT → structured profile (via the active AI provider)
