@@ -29,6 +29,11 @@ export type JobScore = {
   requiredLanguages: string[];
 };
 
+// Jobs scored per AI call. Coupled to the provider `max_tokens` (2048 on the
+// Claude path): each job emits id+score+explanation+missingSkills+requiredLanguages
+// (~150-200 output tokens), so 10 jobs already approaches the cap. Raising this
+// WITHOUT also raising the providers' max output tokens risks truncating the
+// tool-use JSON mid-batch and silently dropping the trailing jobs.
 const BATCH_SIZE = 10;
 
 function buildSystemPrompt(

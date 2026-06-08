@@ -8,7 +8,11 @@ import type { JobSource, RawJob, SearchParams } from "./types";
 const BASE_URL = "https://api.adzuna.com/v1/api/jobs/de/search";
 const MAX_TITLES = 4;
 const RESULTS_PER_PAGE = 50; // Adzuna's max
-const MAX_PAGES = 3; // up to 150 jobs per title × location
+// Adzuna is the highest-volume source by far; left at 3 pages it floods the
+// board and crowds out higher-priority sources (JSearch/Fantastic). Capped to 2
+// pages (≤100 per title × location) — the priority-weighted candidate interleave
+// (see prerank.ts) does the rest of the balancing.
+const MAX_PAGES = 2;
 
 /** Distinct `where` values derived from the selected locations. */
 function buildWheres(params: SearchParams): (string | null)[] {
