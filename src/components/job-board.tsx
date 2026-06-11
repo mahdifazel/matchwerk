@@ -237,7 +237,7 @@ export function JobBoard() {
       toast.success(
         (result.added > 0
           ? `Added ${result.added} new job${result.added === 1 ? "" : "s"} (scanned ${result.scanned})`
-          : `No new jobs — scanned ${result.scanned} listings`) +
+          : `No new jobs, scanned ${result.scanned} listings`) +
           spentText +
           ".",
       );
@@ -434,7 +434,7 @@ export function JobBoard() {
           <div className="flex-1">
             <AlertTitle>Running low on tokens</AlertTitle>
             <AlertDescription>
-              {formatTokens(balance)} left — top up to keep researching and
+              {formatTokens(balance)} left. Top up to keep researching and
               rating jobs.
             </AlertDescription>
           </div>

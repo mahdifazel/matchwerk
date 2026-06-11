@@ -53,7 +53,7 @@ export function PricingTable({
           }
           if (data.credited) {
             toast.success(`Added ${formatTokens(data.tokens)} tokens.`, {
-              description: `${data.planName} — payment received.`,
+              description: `${data.planName}. Payment received.`,
             });
             notifyTokensUpdated();
           } else if (data.pending) {

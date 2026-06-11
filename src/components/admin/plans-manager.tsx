@@ -57,7 +57,7 @@ export function PlansManager() {
     <div className="space-y-6">
       <AdminPageHeader
         title="Plans & Pricing"
-        description="Edit the token plans shown on the pricing page and used by Stripe checkout. Changes take effect immediately — no redeploy."
+        description="Edit the token plans shown on the pricing page and used by Stripe checkout. Changes take effect immediately, no redeploy."
       />
 
       {loading ? (
@@ -210,7 +210,7 @@ function AddPlanForm({ onCreated }: { onCreated: () => void }) {
     <div className="rounded-2xl border border-accent/50 bg-accent/[0.05] p-5">
       <h3 className="mb-3 font-medium">New plan</h3>
       <div className="mb-3">
-        <Field label="Plan id (slug — lowercase, dashes)">
+        <Field label="Plan id (slug: lowercase, dashes)">
           <Input value={id} onChange={(e) => setId(e.target.value)} placeholder="e.g. team" className="h-9 max-w-xs" />
         </Field>
       </div>

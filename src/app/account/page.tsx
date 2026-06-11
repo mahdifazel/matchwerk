@@ -29,7 +29,7 @@ export default function AccountPage() {
           <div>
             <p className="text-sm font-medium">Need help, or have feedback?</p>
             <p className="text-muted-foreground mt-0.5 text-xs">
-              Send us a note — we read every message.
+              Send us a note. We read every message.
             </p>
           </div>
         </div>

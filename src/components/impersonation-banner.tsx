@@ -26,7 +26,7 @@ export function ImpersonationBanner() {
     <div className="flex items-center gap-3 border-b border-amber-500/50 bg-amber-500/15 px-5 py-2.5 text-sm sm:px-8">
       <UserCog className="size-4 shrink-0 text-amber-700 dark:text-amber-400" />
       <p className="flex-1 leading-snug">
-        Viewing as <strong>{status.targetEmail}</strong> — you&apos;re
+        Viewing as <strong>{status.targetEmail}</strong>. You&apos;re
         impersonating this user.
       </p>
       <button

@@ -53,7 +53,7 @@ export function ContactForm({
         setError(data?.error ?? "Could not send. Please try again.");
         return;
       }
-      toast.success("Message sent — we'll get back to you within a few days.");
+      toast.success("Message sent. We'll get back to you within a few days.");
       // Reset to defaults for a fresh follow-up if needed.
       setSubject("");
       setCategory("QUESTION");

@@ -47,7 +47,7 @@ export function BudgetSettings() {
     <div className="border-border/60 bg-card rounded-2xl border p-5">
       <p className="text-muted-foreground mb-4 text-sm">
         Alert on the dashboard when a daily threshold is crossed (resets at UTC
-        midnight). Set to <strong>0</strong> to disable. Alerts are in-app only —
+        midnight). Set to <strong>0</strong> to disable. Alerts are in-app only;
         email would need an email provider.
       </p>
       <div className="grid max-w-2xl gap-4 sm:grid-cols-3">

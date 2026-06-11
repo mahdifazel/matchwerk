@@ -49,7 +49,7 @@ export function ContactDestinationSettings() {
     }
     setState(d);
     setInput(d.origin === "db" ? d.value : "");
-    toast.success(value ? "Contact destination saved." : "Cleared — using env fallback.");
+    toast.success(value ? "Contact destination saved." : "Cleared. Using env fallback.");
   }
 
   if (!state) {
@@ -106,7 +106,7 @@ export function ContactDestinationSettings() {
           ) : (
             <>
               <span className="text-destructive">
-                Not configured — contact messages are saved but no email is
+                Not configured. Contact messages are saved but no email is
                 sent.
               </span>
             </>

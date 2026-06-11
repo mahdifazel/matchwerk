@@ -209,7 +209,7 @@ export default function AdminUserDetailPage() {
 
       {!canMutate && (
         <p className="text-muted-foreground border-border/60 bg-muted/40 rounded-lg border px-3 py-2 text-xs">
-          Read-only — only a Super Admin can modify admin accounts.
+          Read-only. Only a Super Admin can modify admin accounts.
         </p>
       )}
 

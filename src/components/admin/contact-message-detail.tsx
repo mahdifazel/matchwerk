@@ -281,7 +281,7 @@ export function ContactMessageDetail({ message }: { message: Message }) {
             <AlertDialogDescription>
               This permanently removes the message from the database. The
               audit log keeps a record of the deletion (who, when, sender
-              email, subject) — but the body itself can&apos;t be recovered.
+              email, subject), but the body itself can&apos;t be recovered.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

@@ -163,7 +163,7 @@ export async function DELETE(
   const { id } = await params;
   if (id === admin.id) {
     return NextResponse.json(
-      { error: "You can't delete your own account here — use Account settings." },
+      { error: "You can't delete your own account here. Use Account settings." },
       { status: 400 },
     );
   }
