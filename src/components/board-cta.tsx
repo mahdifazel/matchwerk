@@ -105,7 +105,7 @@ export function BoardCta() {
         <CardDescription className="mt-2 max-w-lg text-[0.9rem] leading-relaxed">
           {ready
             ? "Your CV and search preferences are saved. Open the board and hit Research to pull fresh listings and score every one against your profile."
-            : "We need a couple of things before the board can find and rank jobs for you. Complete the checklist below — uploading a CV fills most of it in automatically."}
+            : "We need a couple of things before the board can find and rank jobs for you. Complete the checklist below. Uploading a CV fills most of it in automatically."}
         </CardDescription>
       </CardHeader>
 

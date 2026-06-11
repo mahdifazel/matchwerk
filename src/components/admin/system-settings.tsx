@@ -115,7 +115,7 @@ export function SystemSettings() {
     <div className="space-y-6">
       <AdminPageHeader
         title="System Settings"
-        description="Manage AI provider keys, switch the active provider, job-source keys, rate limits, and budget alerts — no code changes or redeploy needed."
+        description="Manage AI provider keys, switch the active provider, job-source keys, rate limits, and budget alerts. No code changes or redeploy needed."
       />
 
       <section className="space-y-3">
@@ -163,7 +163,7 @@ export function SystemSettings() {
         <h2 className="eyebrow">Job sources</h2>
         <p className="text-muted-foreground text-sm">
           Global API keys and on/off switches for every job source. These apply
-          to all users — there&apos;s no per-user source configuration anymore.
+          to all users. There&apos;s no per-user source configuration anymore.
         </p>
         <SourceSettings />
       </section>

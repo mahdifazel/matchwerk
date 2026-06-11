@@ -8,7 +8,7 @@ import { getSessionUser } from "@/lib/repo";
 import { TOKEN } from "@/lib/tokens";
 
 export const metadata = {
-  title: "Checkout — Matchwerk",
+  title: "Checkout · Matchwerk",
 };
 
 /**

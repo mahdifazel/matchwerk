@@ -52,7 +52,7 @@ async function runRefresh() {
   const profile = await getProfile(userId);
   if (!profile) {
     return NextResponse.json(
-      { error: "Upload a CV first — the matcher needs your profile." },
+      { error: "Upload a CV first. The matcher needs your profile." },
       { status: 400 },
     );
   }

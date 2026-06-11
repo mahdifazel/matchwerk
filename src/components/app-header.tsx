@@ -98,7 +98,7 @@ function TokenPill() {
   return (
     <Link
       href="/plans"
-      title={low ? "Low balance — buy more tokens" : "Token balance — buy more"}
+      title={low ? "Low balance. Buy more tokens" : "Token balance. Buy more"}
       className={cn(
         // Smaller on mobile (px-2, text-xs) so it fits between the nav
         // links and the icon buttons without overflow; full size on sm+.

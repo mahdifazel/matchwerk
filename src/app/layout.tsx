@@ -27,7 +27,7 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Matchwerk — Roles matched to you, ranked for you",
+  title: "Matchwerk: Roles matched to you, ranked for you",
   description: "An AI-matched feed of jobs in Germany.",
 };
 

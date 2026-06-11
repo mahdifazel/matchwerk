@@ -71,7 +71,7 @@ export function RolesManager() {
     <div className="space-y-6">
       <AdminPageHeader
         title="Role Management"
-        description="Grant or revoke admin access. Admins can do everything except manage other admins — that's reserved for Super Admins."
+        description="Grant or revoke admin access. Admins can do everything except manage other admins. That's reserved for Super Admins."
       />
 
       <div className="border-border/60 bg-card rounded-2xl border p-4">

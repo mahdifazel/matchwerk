@@ -3,7 +3,7 @@ import { ContactForm } from "@/components/contact-form";
 import { getSessionUser } from "@/lib/repo";
 
 export const metadata = {
-  title: "Contact us — Matchwerk",
+  title: "Contact us · Matchwerk",
 };
 
 /**

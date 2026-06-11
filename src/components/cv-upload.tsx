@@ -204,7 +204,7 @@ export function CvUpload() {
         );
       }
       toast.success(
-        "CV parsed — profile updated.",
+        "CV parsed. Profile updated.",
         descriptionLines.length > 0
           ? { description: descriptionLines.join(" · ") }
           : undefined,
@@ -308,7 +308,7 @@ export function CvUpload() {
                 : "Drop your CV here, or click to browse"}
           </p>
           <p className="text-muted-foreground mt-0.5 text-xs">
-            PDF, DOCX, or TXT — up to 8 MB
+            PDF, DOCX, or TXT, up to 8 MB
           </p>
         </div>
 

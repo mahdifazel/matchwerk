@@ -95,7 +95,7 @@ export function ScoreMeter({
         "relative inline-flex shrink-0 flex-col items-center justify-center gap-1",
       )}
       aria-label={
-        score === null ? "Not scored" : `${score} percent match — ${m.label}`
+        score === null ? "Not scored" : `${score} percent match, ${m.label}`
       }
     >
       <div className="relative" style={{ width: size, height: size }}>

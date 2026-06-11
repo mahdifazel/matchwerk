@@ -51,7 +51,7 @@ export async function GET() {
     line(t, { size: 11, font: bold, gap: 18 });
   };
 
-  line("Matchwerk — Platform Report", { size: 20, font: bold, gap: 10 });
+  line("Matchwerk · Platform Report", { size: 20, font: bold, gap: 10 });
   line(`Generated ${new Date().toISOString().slice(0, 16).replace("T", " ")} UTC · last 30 days`, {
     size: 9,
     color: muted,

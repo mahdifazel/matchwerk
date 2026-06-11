@@ -74,7 +74,7 @@ export async function POST(request: Request) {
             currency: "eur",
             unit_amount: Math.round(plan.priceEur * 100),
             product_data: {
-              name: `Matchwerk — ${plan.name}`,
+              name: `Matchwerk · ${plan.name}`,
               description: `${tokenCount} tokens, ${formatValidity(plan.durationMonths)}.`,
             },
           },
