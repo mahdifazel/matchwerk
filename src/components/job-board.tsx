@@ -169,11 +169,11 @@ export function JobBoard() {
         const data = await res.json();
         const incoming: JobDTO[] = data.jobs ?? [];
         // Suppress jobs the user soft-cleared (persisted across reloads);
-        // Research clears the set so they come back. Soft-clear is an
-        // Inbox/Starred affordance only — never hide Pipeline/curated rows.
+        // Research clears the set so they come back. Clear List behaves the
+        // same on every status tab; only the Pipeline tracker ignores it so it
+        // always shows the full set.
         const cleared = getClearedIds();
-        const applyCleared =
-          (tab === "inbox" || tab === "starred") && cleared.size > 0;
+        const applyCleared = tab !== "pipeline" && cleared.size > 0;
         setJobs(
           applyCleared ? incoming.filter((j) => !cleared.has(j.id)) : incoming,
         );
