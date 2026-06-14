@@ -5,11 +5,13 @@ import {
   Award,
   Briefcase,
   Coins,
+  Download,
   FileText,
   Inbox,
   ListFilter,
   MessagesSquare,
   Star,
+  Table2,
   Trash2,
 } from "lucide-react";
 import Link from "next/link";
@@ -17,7 +19,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { EmptyState } from "@/components/empty-state";
 import { FilterBar, type Filters } from "@/components/filter-bar";
-import { JobCard, type JobAction } from "@/components/job-card";
+import {
+  JobCard,
+  type ActionPayload,
+  type JobAction,
+} from "@/components/job-card";
+import { PipelineTable } from "@/components/pipeline-table";
 import { RefreshButton } from "@/components/refresh-button";
 import { RefreshProgress } from "@/components/refresh-progress";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -101,9 +108,12 @@ type Tab =
   | "applied"
   | "interviewing"
   | "offer"
-  | "archived";
+  | "archived"
+  | "pipeline";
 
-const TABS: { id: Tab; label: string; icon: typeof Inbox }[] = [
+type TabDef = { id: Tab; label: string; icon: typeof Inbox };
+
+const TABS: TabDef[] = [
   { id: "inbox", label: "Inbox", icon: Inbox },
   { id: "starred", label: "Starred", icon: Star },
   { id: "applied", label: "Applied", icon: Briefcase },
@@ -111,6 +121,9 @@ const TABS: { id: Tab; label: string; icon: typeof Inbox }[] = [
   { id: "offer", label: "Offer", icon: Award },
   { id: "archived", label: "Archived", icon: Archive },
 ];
+
+// Pipeline is a separate, table-style view pinned to the right of the tab nav.
+const PIPELINE_TAB: TabDef = { id: "pipeline", label: "Pipeline", icon: Table2 };
 
 export function JobBoard() {
   const [tab, setTab] = useState<Tab>("inbox");
@@ -158,12 +171,13 @@ export function JobBoard() {
         const data = await res.json();
         const incoming: JobDTO[] = data.jobs ?? [];
         // Suppress jobs the user soft-cleared (persisted across reloads);
-        // Research clears the set so they come back.
+        // Research clears the set so they come back. Soft-clear is an
+        // Inbox/Starred affordance only — never hide Pipeline/curated rows.
         const cleared = getClearedIds();
+        const applyCleared =
+          (tab === "inbox" || tab === "starred") && cleared.size > 0;
         setJobs(
-          cleared.size === 0
-            ? incoming
-            : incoming.filter((j) => !cleared.has(j.id)),
+          applyCleared ? incoming.filter((j) => !cleared.has(j.id)) : incoming,
         );
       } catch (err) {
         // AbortError is expected — a newer filter change superseded this fetch.
@@ -267,19 +281,28 @@ export function JobBoard() {
   }, [fetchJobs]);
 
   const handleAction = useCallback(
-    async (id: string, action: JobAction) => {
+    async (id: string, action: JobAction, payload?: ActionPayload) => {
       setPending((prev) => new Set(prev).add(id));
+      // Sub-stage/outcome edits keep the job on the current tab; stage moves
+      // take it elsewhere, so it should drop out of the visible list.
+      const inPlace =
+        action === "setInterviewStage" || action === "setArchiveReason";
       try {
         const res = await fetch(`/api/jobs/${id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action }),
+          body: JSON.stringify({ action, ...payload }),
         });
+        const data = await res.json().catch(() => null);
         if (!res.ok) {
-          toast.error("Action failed.");
+          toast.error(data?.error ?? "Action failed.");
           return;
         }
-        setJobs((prev) => prev.filter((j) => j.id !== id));
+        if (inPlace && data?.job) {
+          setJobs((prev) => prev.map((j) => (j.id === id ? data.job : j)));
+        } else {
+          setJobs((prev) => prev.filter((j) => j.id !== id));
+        }
         const messages: Record<JobAction, string> = {
           star: "Starred.",
           apply: "Moved to Applied.",
@@ -288,6 +311,8 @@ export function JobBoard() {
           archive: "Moved to Archived.",
           inbox: "Moved back to Inbox.",
           delete: "Hidden, won't show again.",
+          setInterviewStage: "Interview stage updated.",
+          setArchiveReason: "Archive reason updated.",
         };
         toast.success(messages[action]);
       } catch {
@@ -361,8 +386,42 @@ export function JobBoard() {
     }
   }, [jobs]);
 
+  // Inline note auto-save from the Pipeline table. Returns success so the cell
+  // knows whether to keep the value as "saved".
+  const handleSaveNote = useCallback(async (id: string, note: string) => {
+    try {
+      const res = await fetch(`/api/jobs/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "setNote", note }),
+      });
+      if (!res.ok) {
+        toast.error("Could not save note.");
+        return false;
+      }
+      setJobs((prev) => prev.map((j) => (j.id === id ? { ...j, note } : j)));
+      return true;
+    } catch {
+      toast.error("Could not save note.");
+      return false;
+    }
+  }, []);
+
+  // Export is generated server-side as a styled .xlsx (preserves columns,
+  // widths, header + status/stage colors, and Link hyperlinks). We just trigger
+  // a download of the authenticated endpoint.
+  const handleExport = useCallback(() => {
+    if (jobs.length === 0) return;
+    const a = document.createElement("a");
+    a.href = "/api/jobs/pipeline/export";
+    a.rel = "noopener";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }, [jobs.length]);
+
   const emptyByTab: Record<
-    Tab,
+    Exclude<Tab, "pipeline">,
     { icon: typeof Inbox; title: string; description: string }
   > = {
     inbox: {
@@ -408,6 +467,33 @@ export function JobBoard() {
     }
     return { total: jobs.length, strong, good };
   }, [jobs]);
+
+  const renderTab = (t: TabDef) => {
+    const active = tab === t.id;
+    return (
+      <button
+        key={t.id}
+        type="button"
+        onClick={() => setTab(t.id)}
+        className={cn(
+          "relative inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[0.95rem] font-medium tracking-tight transition-colors",
+          active
+            ? "text-foreground"
+            : "text-muted-foreground hover:text-foreground",
+        )}
+      >
+        <t.icon className="size-3.5" />
+        {t.label}
+        <span
+          aria-hidden
+          className={cn(
+            "bg-foreground pointer-events-none absolute inset-x-2 -bottom-[13px] h-px origin-left transition-transform duration-200",
+            active ? "scale-x-100" : "scale-x-0",
+          )}
+        />
+      </button>
+    );
+  };
 
   return (
     <div className="space-y-10 sm:space-y-12">
@@ -481,57 +567,69 @@ export function JobBoard() {
             <span aria-hidden className="text-muted-foreground/50 mx-2">
               /
             </span>
-            <nav className="flex flex-wrap items-center gap-1" aria-label="Job tabs">
-              {TABS.map((t) => {
-                const active = tab === t.id;
-                return (
-                  <button
-                    key={t.id}
-                    type="button"
-                    onClick={() => setTab(t.id)}
-                    className={cn(
-                      "relative inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[0.95rem] font-medium tracking-tight transition-colors",
-                      active
-                        ? "text-foreground"
-                        : "text-muted-foreground hover:text-foreground",
-                    )}
-                  >
-                    <t.icon className="size-3.5" />
-                    {t.label}
-                    <span
-                      aria-hidden
-                      className={cn(
-                        "bg-foreground pointer-events-none absolute inset-x-2 -bottom-[13px] h-px origin-left transition-transform duration-200",
-                        active ? "scale-x-100" : "scale-x-0",
-                      )}
-                    />
-                  </button>
-                );
-              })}
+            <nav
+              className="flex flex-wrap items-center gap-x-5 gap-y-1"
+              aria-label="Job tabs"
+            >
+              {TABS.map(renderTab)}
             </nav>
           </div>
 
-          <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-muted-foreground gap-1.5"
-              onClick={() => setShowFilters((v) => !v)}
-              aria-expanded={showFilters}
-            >
-              <ListFilter className="size-3.5" />
-              {showFilters ? "Hide filters" : "Filters"}
-            </Button>
+          {/* Pipeline lives on the right, set apart from the status tabs. */}
+          <nav className="flex items-center" aria-label="Pipeline view">
+            {renderTab(PIPELINE_TAB)}
+          </nav>
+        </div>
+
+        {/* Secondary toolbar — listing count on the left, actions on the right:
+            Filters/Clear List for the status tabs, Export Table on Pipeline. */}
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+          <span className="text-muted-foreground text-xs tabular-nums">
             {!loading && jobs.length > 0 && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-muted-foreground gap-1.5"
-                onClick={handleClearList}
-              >
-                <Trash2 className="size-3.5" />
-                Clear List
-              </Button>
+              <>
+                <span className="font-mono">{jobs.length}</span>{" "}
+                {jobs.length === 1 ? "listing" : "listings"}
+              </>
+            )}
+          </span>
+
+          <div className="flex items-center gap-2">
+            {tab === "pipeline" ? (
+              jobs.length > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-muted-foreground gap-1.5"
+                  onClick={handleExport}
+                >
+                  <Download className="size-3.5" />
+                  Export Table
+                </Button>
+              )
+            ) : (
+              <>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-muted-foreground gap-1.5"
+                  onClick={() => setShowFilters((v) => !v)}
+                  aria-expanded={showFilters}
+                >
+                  <ListFilter className="size-3.5" />
+                  {showFilters ? "Hide filters" : "Filters"}
+                </Button>
+                {!loading && jobs.length > 0 && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-muted-foreground gap-1.5"
+                    onClick={handleClearList}
+                  >
+                    <Trash2 className="size-3.5" />
+                    Clear List
+                  </Button>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -587,7 +685,7 @@ export function JobBoard() {
           </AlertDialogContent>
         </AlertDialog>
 
-        {showFilters && (
+        {showFilters && tab !== "pipeline" && (
           <div className="border-border/70 bg-card/40 rounded-2xl border p-4 mt-4 ring-1 ring-foreground/[0.03]">
             <FilterBar
               filters={filters}
@@ -595,13 +693,6 @@ export function JobBoard() {
               onReset={() => setFilters(ALL_FILTERS)}
             />
           </div>
-        )}
-
-        {!loading && jobs.length > 0 && (
-          <p className="text-muted-foreground mt-3 text-xs tabular-nums">
-            <span className="font-mono">{jobs.length}</span>{" "}
-            {jobs.length === 1 ? "listing" : "listings"}
-          </p>
         )}
       </section>
 
@@ -615,6 +706,8 @@ export function JobBoard() {
               <Skeleton key={i} className="h-40 rounded-2xl" />
             ))}
           </div>
+        ) : tab === "pipeline" ? (
+          <PipelineTable jobs={jobs} onSaveNote={handleSaveNote} />
         ) : jobs.length === 0 ? (
           <EmptyState
             icon={(() => {

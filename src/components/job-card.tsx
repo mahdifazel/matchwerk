@@ -5,6 +5,7 @@ import {
   ArrowUpRight,
   Award,
   Briefcase,
+  Check,
   ChevronDown,
   MessagesSquare,
   Star,
@@ -18,8 +19,17 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import type { ArchiveReason, InterviewStage } from "@/generated/prisma/enums";
+import {
+  ARCHIVE_REASONS,
+  INTERVIEW_STAGES,
+  type StatusOption,
+} from "@/lib/constants";
 import type { JobDTO } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -30,7 +40,14 @@ export type JobAction =
   | "offer"
   | "archive"
   | "inbox"
-  | "delete";
+  | "delete"
+  | "setInterviewStage"
+  | "setArchiveReason";
+
+export type ActionPayload = {
+  interviewStage?: InterviewStage;
+  archiveReason?: ArchiveReason;
+};
 
 /** Forward/lateral stage moves offered from each stage (excludes the star
  * toggle, "Back to Inbox", and "Don't Show Again", which render inline). */
@@ -47,13 +64,12 @@ const STAGE_MOVES: Record<JobDTO["status"], MoveAction[]> = {
 };
 
 const MOVE_META: Record<
-  MoveAction,
+  Exclude<MoveAction, "archive">,
   { label: string; icon: typeof Briefcase }
 > = {
   apply: { label: "Applied", icon: Briefcase },
   interview: { label: "Interviewing", icon: MessagesSquare },
   offer: { label: "Offer", icon: Award },
-  archive: { label: "Archived", icon: Archive },
 };
 
 const SENIORITY_LABEL: Record<string, string> = {
@@ -82,6 +98,59 @@ function formatDate(iso: string | null) {
   });
 }
 
+/** A color-coded status pill that doubles as a picker for the current
+ * sub-stage (interview stage) or outcome (archive reason). */
+function StatusSelect<T extends string>({
+  value,
+  options,
+  placeholder,
+  onSelect,
+}: {
+  value: T | null;
+  options: StatusOption<T>[];
+  placeholder: string;
+  onSelect: (id: T) => void;
+}) {
+  const current = options.find((o) => o.id === value) ?? null;
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <button
+            type="button"
+            aria-label="Change stage"
+            className={cn(
+              "focus-visible:ring-ring/50 inline-flex h-9 cursor-pointer items-center gap-2 rounded-full border px-4 text-[0.85rem] font-medium tracking-tight transition-colors outline-none focus-visible:ring-3",
+              current
+                ? current.badge
+                : "border-border text-muted-foreground border-dashed",
+            )}
+          />
+        }
+      >
+        <span
+          className={cn(
+            "size-2 rounded-full",
+            current ? current.dot : "bg-muted-foreground/40",
+          )}
+          aria-hidden
+        />
+        {current ? current.label : placeholder}
+        <ChevronDown className="size-3.5 opacity-70" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-56">
+        {options.map((o) => (
+          <DropdownMenuItem key={o.id} onClick={() => onSelect(o.id)}>
+            <span className={cn("size-2 rounded-full", o.dot)} aria-hidden />
+            {o.label}
+            {o.id === value && <Check className="ml-auto size-3.5" />}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 export function JobCard({
   job,
   pending,
@@ -89,7 +158,7 @@ export function JobCard({
 }: {
   job: JobDTO;
   pending: boolean;
-  onAction: (id: string, action: JobAction) => void;
+  onAction: (id: string, action: JobAction, payload?: ActionPayload) => void;
 }) {
   const isInbox = job.status === "NEW";
   const isApplied = job.status === "APPLIED";
@@ -111,6 +180,8 @@ export function JobCard({
     JOB_TYPE_LABEL[job.jobType] || null,
   ].filter(Boolean) as string[];
 
+  const hasStatusChip = (isApplied && job.appliedAt) || job.status === "OFFER";
+
   return (
     <Card
       className={cn(
@@ -124,11 +195,18 @@ export function JobCard({
         {/* Headline + score */}
         <div className="flex items-start justify-between gap-5">
           <div className="min-w-0 flex-1">
-            {isApplied && job.appliedAt && (
-              <div className="flex items-center gap-2">
-                <span className="bg-accent/25 text-accent-foreground inline-flex h-5 items-center rounded-full px-2 text-[0.65rem] font-medium tracking-tight">
-                  Applied {formatDate(job.appliedAt)}
-                </span>
+            {hasStatusChip && (
+              <div className="flex flex-wrap items-center gap-2">
+                {isApplied && job.appliedAt && (
+                  <span className="bg-accent/25 text-accent-foreground inline-flex h-6 items-center rounded-full px-2.5 text-[0.7rem] font-medium tracking-tight">
+                    Applied {formatDate(job.appliedAt)}
+                  </span>
+                )}
+                {job.status === "OFFER" && (
+                  <span className="inline-flex h-6 items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 text-[0.7rem] font-medium tracking-tight text-emerald-700 dark:text-emerald-400">
+                    <Award className="size-3" /> Offer
+                  </span>
+                )}
               </div>
             )}
             <h3 className="font-display mt-2 text-[1.45rem] leading-[1.18] tracking-tight sm:text-[1.6rem]">
@@ -178,88 +256,139 @@ export function JobCard({
         {/* Rule + actions */}
         <div className="bg-border/60 mt-1 h-px w-full" />
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex flex-wrap items-center gap-0.5">
-            {isInbox ? (
-              <Button
-                size="sm"
-                variant="ghost"
-                className="text-muted-foreground hover:text-foreground h-8 gap-1.5 px-2"
-                aria-label="Star"
-                onClick={() => onAction(job.id, "star")}
-              >
-                <Star className="size-3.5" />
-                <span className="text-[0.85rem]">Star</span>
-              </Button>
-            ) : (
-              <Button
-                size="sm"
-                variant="ghost"
-                className="text-muted-foreground hover:text-foreground h-8 gap-1.5 px-2"
-                aria-label="Move this job back to the Inbox"
-                onClick={() => onAction(job.id, "inbox")}
-              >
-                <Undo2 className="size-3.5" />
-                <span className="text-[0.85rem]">Back to Inbox</span>
-              </Button>
-            )}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-0.5">
+              {isInbox ? (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-muted-foreground hover:text-foreground h-8 gap-1.5 px-2"
+                  aria-label="Star"
+                  onClick={() => onAction(job.id, "star")}
+                >
+                  <Star className="size-3.5" />
+                  <span className="text-[0.85rem]">Star</span>
+                </Button>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-muted-foreground hover:text-foreground h-8 gap-1.5 px-2"
+                  aria-label="Move this job back to the Inbox"
+                  onClick={() => onAction(job.id, "inbox")}
+                >
+                  <Undo2 className="size-3.5" />
+                  <span className="text-[0.85rem]">Back to Inbox</span>
+                </Button>
+              )}
 
+              {isInbox && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-muted-foreground hover:text-foreground h-8 gap-1.5 px-2"
+                  aria-label="Don't show this job again"
+                  onClick={() => onAction(job.id, "delete")}
+                >
+                  <Trash2 className="size-3.5" />
+                  <span className="text-[0.85rem]">Don&apos;t Show Again</span>
+                </Button>
+              )}
+            </div>
+
+            {job.status === "INTERVIEWING" && (
+              <StatusSelect
+                value={job.interviewStage}
+                options={INTERVIEW_STAGES}
+                placeholder="Set stage"
+                onSelect={(interviewStage) =>
+                  onAction(job.id, "setInterviewStage", { interviewStage })
+                }
+              />
+            )}
+            {job.status === "ARCHIVED" && (
+              <StatusSelect
+                value={job.archiveReason}
+                options={ARCHIVE_REASONS}
+                placeholder="Set reason"
+                onSelect={(archiveReason) =>
+                  onAction(job.id, "setArchiveReason", { archiveReason })
+                }
+              />
+            )}
+          </div>
+
+          <div className="flex items-center gap-2">
             {moves.length > 0 && (
               <DropdownMenu>
                 <DropdownMenuTrigger
                   render={
                     <Button
                       size="sm"
-                      variant="ghost"
-                      className="text-muted-foreground hover:text-foreground h-8 gap-1.5 px-2"
+                      variant="outline"
+                      className="h-9 gap-1.5 rounded-full px-4"
                       aria-label="Move this job to another stage"
                     />
                   }
                 >
-                  <span className="text-[0.85rem]">Move to</span>
+                  <span className="text-[0.85rem]">Update Status</span>
                   <ChevronDown className="size-3.5" />
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-44">
-                  {moves.map((move) => {
-                    const { label, icon: Icon } = MOVE_META[move];
-                    return (
-                      <DropdownMenuItem
-                        key={move}
-                        onClick={() => onAction(job.id, move)}
-                      >
-                        <Icon className="size-3.5" />
-                        {label}
-                      </DropdownMenuItem>
-                    );
-                  })}
+                <DropdownMenuContent align="end" className="w-52">
+                  {moves
+                    .filter((m): m is Exclude<MoveAction, "archive"> => m !== "archive")
+                    .map((move) => {
+                      const { label, icon: Icon } = MOVE_META[move];
+                      return (
+                        <DropdownMenuItem
+                          key={move}
+                          onClick={() => onAction(job.id, move)}
+                        >
+                          <Icon className="size-3.5" />
+                          {label}
+                        </DropdownMenuItem>
+                      );
+                    })}
+                  {moves.includes("archive") && (
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger>
+                        <Archive className="size-3.5" />
+                        Archived
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuSubContent className="w-44">
+                        {ARCHIVE_REASONS.map((r) => (
+                          <DropdownMenuItem
+                            key={r.id}
+                            onClick={() =>
+                              onAction(job.id, "archive", { archiveReason: r.id })
+                            }
+                          >
+                            <span
+                              className={cn("size-2 rounded-full", r.dot)}
+                              aria-hidden
+                            />
+                            {r.label}
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuSubContent>
+                    </DropdownMenuSub>
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
 
-            {isInbox && (
-              <Button
-                size="sm"
-                variant="ghost"
-                className="text-muted-foreground hover:text-foreground h-8 gap-1.5 px-2"
-                aria-label="Don't show this job again"
-                onClick={() => onAction(job.id, "delete")}
-              >
-                <Trash2 className="size-3.5" />
-                <span className="text-[0.85rem]">Don&apos;t Show Again</span>
-              </Button>
-            )}
+            <Button
+              size="sm"
+              variant="default"
+              className="h-9 gap-1.5 rounded-full px-4"
+              nativeButton={false}
+              render={
+                <a href={job.url} target="_blank" rel="noopener noreferrer" />
+              }
+            >
+              View Job Details <ArrowUpRight className="size-3.5" />
+            </Button>
           </div>
-
-          <Button
-            size="sm"
-            variant="default"
-            className="h-9 gap-1.5 rounded-full px-4"
-            nativeButton={false}
-            render={
-              <a href={job.url} target="_blank" rel="noopener noreferrer" />
-            }
-          >
-            View Job Details <ArrowUpRight className="size-3.5" />
-          </Button>
         </div>
       </div>
     </Card>

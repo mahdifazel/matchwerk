@@ -12,6 +12,7 @@ import {
   ALL_SENIORITY,
   ALL_SOURCE_IDS,
   DATE_POSTED_OPTIONS,
+  PIPELINE_STATUSES,
   TAB_STATUSES,
   type DatePostedId,
 } from "@/lib/constants";
@@ -43,6 +44,18 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
 
   const tab = searchParams.get("tab") ?? "inbox";
+
+  // Pipeline is a cross-status management view (Applied → Interviewing → Offer →
+  // Archived). It ignores the board's narrowing filters and score threshold so
+  // every tracked application shows up regardless of how it scored.
+  if (tab === "pipeline") {
+    const jobs = await prisma.job.findMany({
+      where: { userId, status: { in: PIPELINE_STATUSES } },
+      orderBy: [{ appliedAt: "desc" }, { fetchedAt: "desc" }],
+    });
+    return NextResponse.json({ jobs });
+  }
+
   const status: JobStatus = TAB_STATUSES[tab] ?? "NEW";
 
   const sources = csv(searchParams.get("sources")) as JobSourceId[];

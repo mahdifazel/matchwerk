@@ -37,6 +37,24 @@ enum JobStatus {
   DELETED
 }
 
+/// Sub-stage of an INTERVIEWING job, user-selected on the board.
+enum InterviewStage {
+  RECRUITER_SCREEN
+  HIRING_MANAGER
+  TECHNICAL
+  TAKE_HOME
+  PANEL
+  FINAL
+  WAITING_DECISION
+}
+
+/// Outcome recorded when a job is moved to ARCHIVED.
+enum ArchiveReason {
+  REJECTED
+  WITHDRAWN
+  CLOSED
+}
+
 /// Platform access level. USER = normal client. ADMIN = full backoffice access
 /// except managing admins. SUPER_ADMIN = everything, including managing admins.
 enum UserRole {
@@ -373,6 +391,13 @@ model Job {
 
   status    JobStatus @default(NEW)
   appliedAt DateTime?
+
+  /// Set while status = INTERVIEWING; cleared when the job leaves that stage.
+  interviewStage InterviewStage?
+  /// Set while status = ARCHIVED; cleared when the job leaves that stage.
+  archiveReason  ArchiveReason?
+  /// Free-text note, editable inline in the Pipeline table view.
+  note           String          @default("")
 
   fetchedAt DateTime @default(now())
   updatedAt DateTime @updatedAt
