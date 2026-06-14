@@ -136,8 +136,6 @@ export function JobBoard() {
   const [hasProfile, setHasProfile] = useState<boolean | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   const [heroTitle, setHeroTitle] = useState<string | null>(null);
-  const [unapplyOpen, setUnapplyOpen] = useState(false);
-  const [unapplying, setUnapplying] = useState(false);
   const [clearOpen, setClearOpen] = useState(false);
   // IDs the user has "Cleared" from the Inbox view. Soft-hide only — the rows
   // stay in the DB. We filter fetched jobs through this ref on every load so a
@@ -330,14 +328,11 @@ export function JobBoard() {
 
   const handleClearList = useCallback(() => {
     if (jobs.length === 0) return;
-    // Applied: bulk-unapply needs its own confirmation (moves jobs back to Inbox).
-    if (tab === "applied") {
-      setUnapplyOpen(true);
-      return;
-    }
-    // Inbox + Starred: ask first; the soft-clear itself runs in handleConfirmClear.
+    // Same soft-clear behavior on every tab: ask first, then hide the visible
+    // rows (they stay in the DB and return on the next Research). The actual
+    // clear runs in handleConfirmClear.
     setClearOpen(true);
-  }, [jobs, tab]);
+  }, [jobs]);
 
   const handleConfirmClear = useCallback(() => {
     if (jobs.length === 0) {
@@ -358,33 +353,6 @@ export function JobBoard() {
       `Cleared ${cleared} job${cleared === 1 ? "" : "s"} from view. They'll come back on the next Research.`,
     );
   }, [jobs, getClearedIds]);
-
-  const handleBulkUnapply = useCallback(async () => {
-    const ids = jobs.map((j) => j.id);
-    if (ids.length === 0) return;
-    setUnapplying(true);
-    try {
-      const res = await fetch("/api/jobs/bulk", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "unapply", ids }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        toast.error(data.error ?? "Could not move jobs back.");
-        return;
-      }
-      setJobs([]);
-      setUnapplyOpen(false);
-      toast.success(
-        `Moved ${data.count} job${data.count === 1 ? "" : "s"} back to Inbox.`,
-      );
-    } catch {
-      toast.error("Could not move jobs back.");
-    } finally {
-      setUnapplying(false);
-    }
-  }, [jobs]);
 
   // Inline note auto-save from the Pipeline table. Returns success so the cell
   // knows whether to keep the value as "saved".
@@ -633,32 +601,6 @@ export function JobBoard() {
             )}
           </div>
         </div>
-
-        <AlertDialog open={unapplyOpen} onOpenChange={setUnapplyOpen}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Move applied jobs back to Inbox?</AlertDialogTitle>
-              <AlertDialogDescription>
-                This moves all {jobs.length} job
-                {jobs.length === 1 ? "" : "s"} on the Applied tab back to your
-                Inbox and clears their applied date. You can re-apply at any
-                time.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel disabled={unapplying}>Cancel</AlertDialogCancel>
-              <AlertDialogAction
-                disabled={unapplying}
-                onClick={(e) => {
-                  e.preventDefault();
-                  handleBulkUnapply();
-                }}
-              >
-                {unapplying ? "Moving…" : "Move to Inbox"}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
 
         <AlertDialog open={clearOpen} onOpenChange={setClearOpen}>
           <AlertDialogContent>
