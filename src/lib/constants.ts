@@ -1,4 +1,11 @@
-import { JobSourceId, JobStatus, JobType, Seniority } from "@/generated/prisma/enums";
+import {
+  ArchiveReason,
+  InterviewStage,
+  JobSourceId,
+  JobStatus,
+  JobType,
+  Seniority,
+} from "@/generated/prisma/enums";
 
 export const DEFAULT_JOB_TITLES = [
   "Product Designer",
@@ -119,4 +126,141 @@ export const TAB_STATUSES: Record<string, JobStatus> = {
   inbox: "NEW",
   starred: "STARRED",
   applied: "APPLIED",
+  interviewing: "INTERVIEWING",
+  offer: "OFFER",
+  archived: "ARCHIVED",
 };
+
+/** Statuses surfaced together in the Pipeline (spreadsheet) view. */
+export const PIPELINE_STATUSES: JobStatus[] = [
+  "APPLIED",
+  "INTERVIEWING",
+  "OFFER",
+  "ARCHIVED",
+];
+
+export const JOB_STATUS_LABEL: Record<JobStatus, string> = {
+  NEW: "Inbox",
+  STARRED: "Starred",
+  APPLIED: "Applied",
+  INTERVIEWING: "Interviewing",
+  OFFER: "Offer",
+  ARCHIVED: "Archived",
+  DELETED: "Removed",
+};
+
+/**
+ * The "Stage" value shown in the Pipeline table. Applied is always "Pending"
+ * and Offer is always "Thinking"; Interviewing/Archived show the user-selected
+ * sub-stage / outcome (falling back to "Not set" when none chosen yet).
+ */
+export function pipelineStageLabel(
+  status: JobStatus,
+  interviewStage: InterviewStage | null,
+  archiveReason: ArchiveReason | null,
+): string {
+  switch (status) {
+    case "APPLIED":
+      return "Pending";
+    case "OFFER":
+      return "Thinking";
+    case "INTERVIEWING": {
+      const s = INTERVIEW_STAGES.find((x) => x.id === interviewStage);
+      return s ? (s.short ?? s.label) : "Not set";
+    }
+    case "ARCHIVED": {
+      const r = ARCHIVE_REASONS.find((x) => x.id === archiveReason);
+      return r ? (r.short ?? r.label) : "Not set";
+    }
+    default:
+      return "";
+  }
+}
+
+/**
+ * Color-coded sub-stages + outcomes shown on the board. `badge` styles the
+ * pill on the card; `dot` styles the swatch in the picker menu. Classes follow
+ * the existing palette pattern (border-X/30 bg-X/10 text-X-700 dark:text-X-400).
+ */
+export type StatusOption<T extends string> = {
+  id: T;
+  label: string;
+  /** Compact label for tight surfaces (e.g. the Pipeline table). Falls back
+   * to `label` where unset. */
+  short?: string;
+  badge: string;
+  dot: string;
+};
+
+export const INTERVIEW_STAGES: StatusOption<InterviewStage>[] = [
+  {
+    id: "RECRUITER_SCREEN",
+    label: "Recruiter Screen",
+    badge: "border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-400",
+    dot: "bg-sky-500",
+  },
+  {
+    id: "HIRING_MANAGER",
+    label: "Hiring Manager Interview",
+    short: "Hiring Manager",
+    badge:
+      "border-indigo-500/30 bg-indigo-500/10 text-indigo-700 dark:text-indigo-400",
+    dot: "bg-indigo-500",
+  },
+  {
+    id: "TECHNICAL",
+    label: "Technical Interview",
+    badge:
+      "border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-400",
+    dot: "bg-violet-500",
+  },
+  {
+    id: "TAKE_HOME",
+    label: "Take-Home Assignment",
+    short: "Home Assignment",
+    badge:
+      "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400",
+    dot: "bg-amber-500",
+  },
+  {
+    id: "PANEL",
+    label: "Panel Interview",
+    badge: "border-teal-500/30 bg-teal-500/10 text-teal-700 dark:text-teal-400",
+    dot: "bg-teal-500",
+  },
+  {
+    id: "FINAL",
+    label: "Final Interview",
+    badge:
+      "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
+    dot: "bg-emerald-500",
+  },
+  {
+    id: "WAITING_DECISION",
+    label: "Waiting for Decision",
+    badge: "border-zinc-500/30 bg-zinc-500/10 text-zinc-600 dark:text-zinc-400",
+    dot: "bg-zinc-500",
+  },
+];
+
+export const ARCHIVE_REASONS: StatusOption<ArchiveReason>[] = [
+  {
+    id: "REJECTED",
+    label: "Rejected",
+    badge: "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-400",
+    dot: "bg-rose-500",
+  },
+  {
+    id: "WITHDRAWN",
+    label: "Withdrawn",
+    badge:
+      "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400",
+    dot: "bg-amber-500",
+  },
+  {
+    id: "CLOSED",
+    label: "Closed",
+    badge: "border-zinc-500/30 bg-zinc-500/10 text-zinc-600 dark:text-zinc-400",
+    dot: "bg-zinc-500",
+  },
+];

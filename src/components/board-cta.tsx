@@ -125,7 +125,7 @@ export function BoardCta() {
                 className={cn(
                   "mt-0.5 inline-flex size-7 shrink-0 items-center justify-center rounded-full transition-colors",
                   done
-                    ? "bg-foreground text-background"
+                    ? "bg-[#c7d7a0] text-[#1A1233]"
                     : "bg-muted text-muted-foreground dark:bg-white/10",
                 )}
               >

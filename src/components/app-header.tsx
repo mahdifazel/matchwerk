@@ -35,7 +35,7 @@ export function AppHeader() {
           The wordmark alone is ~115px on a 375px screen, so hiding it
           below sm: is the single biggest fix for the overflow that
           made the header feel "non-responsive". */}
-      <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between gap-2 px-4 sm:h-16 sm:gap-3 sm:px-8">
+      <div className="mx-auto flex h-14 w-full max-w-7xl items-center justify-between gap-2 px-4 sm:h-16 sm:gap-3 sm:px-8">
         <Link
           href="/"
           className="group flex shrink-0 items-center gap-2.5"

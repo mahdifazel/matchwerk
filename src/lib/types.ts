@@ -1,4 +1,6 @@
 import type {
+  ArchiveReason,
+  InterviewStage,
   JobSourceId,
   JobStatus,
   JobType,
@@ -27,6 +29,12 @@ export type JobDTO = {
   scoredAt: string | null;
   status: JobStatus;
   appliedAt: string | null;
+  /** Set while status = INTERVIEWING (color-coded sub-stage). */
+  interviewStage: InterviewStage | null;
+  /** Set while status = ARCHIVED (outcome). */
+  archiveReason: ArchiveReason | null;
+  /** Free-text note, editable inline in the Pipeline table. */
+  note: string;
   fetchedAt: string;
 };
 

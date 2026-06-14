@@ -136,7 +136,10 @@ async function runRefresh() {
   // 3b. Also drop anything that LOOKS LIKE a starred or applied job — handles cross-source
   // title variants (e.g. "Senior PD" vs "Senior PD - parental leave cover" at the same company).
   const protectedJobs = await prisma.job.findMany({
-    where: { userId, status: { in: ["STARRED", "APPLIED"] } },
+    where: {
+      userId,
+      status: { in: ["STARRED", "APPLIED", "INTERVIEWING", "OFFER", "ARCHIVED"] },
+    },
     select: { title: true, company: true, location: true },
   });
   if (protectedJobs.length > 0) {
