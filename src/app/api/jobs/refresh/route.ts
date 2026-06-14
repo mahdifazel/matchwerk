@@ -199,6 +199,7 @@ async function runRefresh() {
       added: 0,
       scanned,
       reports,
+      newJobIds: [],
       tokens: {
         balance: tokens.balance,
         charged: tokens.charged,
@@ -277,6 +278,24 @@ async function runRefresh() {
       ? await prisma.job.createMany({ data: rows, skipDuplicates: true })
       : { count: 0 };
 
+  // Resolve the IDs of the rows just inserted so the board can flag them with a
+  // "New" badge. `scoredFresh` hashes are guaranteed absent from the DB before
+  // this run (repeats were filtered by hash above), so a lookup by those hashes
+  // + status NEW returns exactly the freshly created rows.
+  const newJobIds =
+    rows.length > 0
+      ? (
+          await prisma.job.findMany({
+            where: {
+              userId,
+              status: "NEW",
+              dedupeHash: { in: scoredFresh.map((j) => j.dedupeHash) },
+            },
+            select: { id: true },
+          })
+        ).map((r) => r.id)
+      : [];
+
   // 7. Charge once the new jobs are scored + stored, so a failed run isn't billed.
   const tokens = await charge(userId, cost, "research", {
     considered: considered.length,
@@ -289,6 +308,7 @@ async function runRefresh() {
     added: result.count,
     scanned,
     reports,
+    newJobIds,
     tokens: {
       balance: tokens.balance,
       charged: tokens.charged,

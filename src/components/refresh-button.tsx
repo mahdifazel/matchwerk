@@ -6,9 +6,11 @@ import { cn } from "@/lib/utils";
 export function RefreshButton({
   refreshing,
   onClick,
+  className,
 }: {
   refreshing: boolean;
   onClick: () => void;
+  className?: string;
 }) {
   return (
     <button
@@ -16,7 +18,7 @@ export function RefreshButton({
       onClick={onClick}
       disabled={refreshing}
       className={cn(
-        "group/refresh relative inline-flex h-11 items-center gap-2.5 rounded-full px-5 text-sm font-medium tracking-tight",
+        "group/refresh relative inline-flex h-11 items-center justify-center gap-2.5 rounded-full px-5 text-sm font-medium tracking-tight",
         "bg-primary text-primary-foreground",
         "ring-1 ring-inset ring-white/8 dark:ring-black/20",
         "shadow-[0_8px_20px_-12px_rgba(26,18,51,0.45)]",
@@ -25,6 +27,7 @@ export function RefreshButton({
         "active:translate-y-0",
         "disabled:cursor-not-allowed disabled:opacity-70 disabled:hover:translate-y-0",
         "dark:bg-primary dark:text-primary-foreground",
+        className,
       )}
     >
       <span className="bg-accent relative grid size-6 place-items-center rounded-full text-[var(--brand-ink)]">
