@@ -1,11 +1,14 @@
 "use client";
 
 import {
+  Archive,
+  Award,
   Briefcase,
   Coins,
   FileText,
   Inbox,
   ListFilter,
+  MessagesSquare,
   Star,
   Trash2,
 } from "lucide-react";
@@ -92,12 +95,21 @@ function writeClearedIds(ids: Set<string>): void {
   else window.localStorage.setItem(CLEARED_IDS_KEY, JSON.stringify([...ids]));
 }
 
-type Tab = "inbox" | "starred" | "applied";
+type Tab =
+  | "inbox"
+  | "starred"
+  | "applied"
+  | "interviewing"
+  | "offer"
+  | "archived";
 
 const TABS: { id: Tab; label: string; icon: typeof Inbox }[] = [
   { id: "inbox", label: "Inbox", icon: Inbox },
   { id: "starred", label: "Starred", icon: Star },
   { id: "applied", label: "Applied", icon: Briefcase },
+  { id: "interviewing", label: "Interviewing", icon: MessagesSquare },
+  { id: "offer", label: "Offer", icon: Award },
+  { id: "archived", label: "Archived", icon: Archive },
 ];
 
 export function JobBoard() {
@@ -270,9 +282,11 @@ export function JobBoard() {
         setJobs((prev) => prev.filter((j) => j.id !== id));
         const messages: Record<JobAction, string> = {
           star: "Starred.",
-          unstar: "Moved back to Inbox.",
-          apply: "Marked as applied.",
-          unapply: "Moved back to Inbox.",
+          apply: "Moved to Applied.",
+          interview: "Moved to Interviewing.",
+          offer: "Moved to Offer.",
+          archive: "Moved to Archived.",
+          inbox: "Moved back to Inbox.",
           delete: "Hidden, won't show again.",
         };
         toast.success(messages[action]);
@@ -367,6 +381,21 @@ export function JobBoard() {
       title: "No applications logged",
       description: "Jobs you apply to will be tracked here with a timestamp.",
     },
+    interviewing: {
+      icon: MessagesSquare,
+      title: "No interviews yet",
+      description: "Move jobs here once you're interviewing for them.",
+    },
+    offer: {
+      icon: Award,
+      title: "No offers yet",
+      description: "Move jobs here when you receive an offer.",
+    },
+    archived: {
+      icon: Archive,
+      title: "Nothing archived",
+      description: "Archived jobs are kept here, out of your active pipeline.",
+    },
   };
 
   const stats = useMemo(() => {
@@ -452,7 +481,7 @@ export function JobBoard() {
             <span aria-hidden className="text-muted-foreground/50 mx-2">
               /
             </span>
-            <nav className="flex items-center gap-1" aria-label="Job tabs">
+            <nav className="flex flex-wrap items-center gap-1" aria-label="Job tabs">
               {TABS.map((t) => {
                 const active = tab === t.id;
                 return (

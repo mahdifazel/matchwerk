@@ -5,7 +5,15 @@ import { prisma } from "@/lib/prisma";
 import { getSessionUserId } from "@/lib/repo";
 
 const patchSchema = z.object({
-  action: z.enum(["star", "unstar", "apply", "unapply", "delete"]),
+  action: z.enum([
+    "star",
+    "apply",
+    "interview",
+    "offer",
+    "archive",
+    "inbox",
+    "delete",
+  ]),
 });
 
 export async function PATCH(
@@ -33,15 +41,23 @@ export async function PATCH(
     return NextResponse.json({ error: "Job not found." }, { status: 404 });
   }
 
+  // Permissive stage transitions: the board UI only offers the moves allowed
+  // from a job's current stage; the server just records the target status.
+  // `appliedAt` is stamped only when entering APPLIED and cleared on the return
+  // to the Inbox; the later pipeline stages preserve whatever date is there.
   const data: { status: JobStatus; appliedAt?: Date | null } = (() => {
     switch (parsed.data.action) {
       case "star":
         return { status: "STARRED" };
-      case "unstar":
-        return { status: "NEW" };
       case "apply":
         return { status: "APPLIED", appliedAt: new Date() };
-      case "unapply":
+      case "interview":
+        return { status: "INTERVIEWING" };
+      case "offer":
+        return { status: "OFFER" };
+      case "archive":
+        return { status: "ARCHIVED" };
+      case "inbox":
         return { status: "NEW", appliedAt: null };
       case "delete":
         return { status: "DELETED" };

@@ -31,6 +31,9 @@ enum JobStatus {
   NEW
   STARRED
   APPLIED
+  INTERVIEWING
+  OFFER
+  ARCHIVED
   DELETED
 }
 

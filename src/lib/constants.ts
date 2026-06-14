@@ -119,4 +119,7 @@ export const TAB_STATUSES: Record<string, JobStatus> = {
   inbox: "NEW",
   starred: "STARRED",
   applied: "APPLIED",
+  interviewing: "INTERVIEWING",
+  offer: "OFFER",
+  archived: "ARCHIVED",
 };
