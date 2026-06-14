@@ -313,6 +313,8 @@ The same logic applies to `jobType`. For `source`, no UNKNOWN passes because eve
 
 ## 30. Clear List semantics split by tab
 
+> **Superseded (2026-06-14, see #47).** Clear List is now a uniform non-destructive soft clear with the same confirmation on every status tab; the Applied bulk-unapply branch was removed.
+
 **Decision.** `Clear List` on the Inbox and Starred tabs is a non-destructive view-only clear (no API call, no DB write — just `setJobs([])`). On the Applied tab, it opens a confirmation dialog and bulk-unapplies every visible job back to Inbox (`POST /api/jobs/bulk { action: "unapply", ids }`).
 
 **Why split.** On Inbox / Starred, "clear from view" is a triage gesture — the user wants a fresh page to scroll. Persistent removal there would surprise (and the per-card *"Don't Show Again"* already covers permanent deletion). On Applied, "clear" without an undo would lose application history; bulk-unapply is reversible (the jobs go back to Inbox where the user can Apply again).
@@ -514,3 +516,13 @@ The same logic applies to `jobType`. For `source`, no UNKNOWN passes because eve
 **Why XLSX (exceljs), server-side.** CSV can't carry the table's structure/colors. `exceljs` produces a real workbook (column widths, frozen header, autofilter, per-cell fills/borders/hyperlinks). It runs in the route handler (in `serverExternalPackages`) so the ~MB library never reaches the client bundle, and the export re-queries the DB so it always reflects the latest auto-saved notes. The Status/Stage cell colors are the on-screen badge tints flattened onto white (the table sits on `bg-card` = white in light mode) so the sheet matches the UI.
 
 **Why `tab=pipeline` ignores filters.** The Pipeline is an application tracker, not a discovery surface — every job you're actively pursuing should appear regardless of how it scored or which location/seniority chips happen to be set. It's a deliberate early return in `/api/jobs` that skips the narrowing filters and the `minScore` floor (which would otherwise drop unscored rows).
+
+---
+
+## 47. Clear List is a uniform soft clear across all status tabs
+
+**Decision.** `Clear List` now behaves identically on every status tab (Inbox / Starred / Applied / Interviewing / Offer / Archived): it opens the **same confirmation dialog**, then soft-clears the visible rows — their IDs go into the `localStorage` set `mw:clearedJobIds` and are filtered out of subsequent fetches until the next Research. No DB write; nothing is moved or deleted. The Applied-only bulk-unapply branch (DECISIONS #30) and its separate dialog/handler were removed. The Pipeline tab has no Clear List and ignores the cleared set, so the tracker always shows the full pipeline.
+
+**Why.** The split behavior (view-only on Inbox/Starred, destructive-ish bulk-unapply on Applied) surprised users: the same button did two very different things, and on the new Interviewing/Offer/Archived tabs the old code fell through to a soft clear with no confirmation. One predictable gesture — "hide these from view until I research again" — is easier to reason about and reversible everywhere (Research brings them back). The per-card *"Don't Show Again"* still covers permanent hiding; `Update Status` covers stage changes.
+
+**Note.** `POST /api/jobs/bulk { action: "unapply" }` is left in place (still a valid endpoint) but is no longer called by the UI.

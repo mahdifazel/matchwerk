@@ -345,7 +345,7 @@ The "only narrows if subset" rule is critical for fresh jobs whose seniority/typ
 | `GET` | `/api/tokens` | — | `{ balance, debt }` for the header pill |
 | `GET` | `/api/account` | — | Account details + `{ tokenBalance, tokenDebt }` |
 
-**Board UI semantics for Clear List:** on Inbox / Starred it's a non-destructive view-only clear (no DB write). On Applied it opens a confirmation dialog, then bulk-unapplies the visible jobs back to Inbox.
+**Board UI semantics for Clear List:** a non-destructive, view-only soft clear (no DB write) with the same confirmation dialog on every status tab — the visible IDs go into a `localStorage` set (`mw:clearedJobIds`) and are filtered out of fetches until the next Research. The Pipeline tab ignores the cleared set (always shows the full tracker). Superseded DECISIONS #30.
 
 ### 3.5 Contact form & admin inbox
 
