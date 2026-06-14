@@ -8,6 +8,7 @@ import {
   Check,
   ChevronDown,
   MessagesSquare,
+  Sparkles,
   Star,
   ThumbsDown,
   Undo2,
@@ -154,10 +155,13 @@ function StatusSelect<T extends string>({
 export function JobCard({
   job,
   pending,
+  isNew = false,
   onAction,
 }: {
   job: JobDTO;
   pending: boolean;
+  /** Freshly discovered on the last Research run — flagged with a "New" badge. */
+  isNew?: boolean;
   onAction: (id: string, action: JobAction, payload?: ActionPayload) => void;
 }) {
   const isInbox = job.status === "NEW";
@@ -180,7 +184,8 @@ export function JobCard({
     JOB_TYPE_LABEL[job.jobType] || null,
   ].filter(Boolean) as string[];
 
-  const hasStatusChip = (isApplied && job.appliedAt) || job.status === "OFFER";
+  const hasStatusChip =
+    isNew || (isApplied && job.appliedAt) || job.status === "OFFER";
 
   return (
     <Card
@@ -197,6 +202,11 @@ export function JobCard({
           <div className="min-w-0 flex-1">
             {hasStatusChip && (
               <div className="flex flex-wrap items-center gap-2">
+                {isNew && (
+                  <span className="inline-flex h-6 items-center gap-1 rounded-full border border-blue-500/30 bg-blue-500/10 px-2.5 text-[0.7rem] font-medium tracking-tight text-blue-700 dark:text-blue-400">
+                    <Sparkles className="size-3" /> New
+                  </span>
+                )}
                 {isApplied && job.appliedAt && (
                   <span className="bg-accent/25 text-accent-foreground inline-flex h-6 items-center rounded-full px-2.5 text-[0.7rem] font-medium tracking-tight">
                     Applied {formatDate(job.appliedAt)}
@@ -255,7 +265,7 @@ export function JobCard({
 
         {/* Rule + actions */}
         <div className="bg-border/60 mt-1 h-px w-full" />
-        <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-2">
           <div className="flex flex-wrap items-center gap-2">
             <div className="flex items-center gap-0.5">
               {isInbox ? (

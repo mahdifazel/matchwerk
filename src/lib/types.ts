@@ -75,6 +75,8 @@ export type RefreshResult = {
   added: number;
   scanned: number;
   reports: SourceRunReportDTO[];
+  /** IDs of jobs inserted by this run (flagged with a "New" badge in the board). */
+  newJobIds: string[];
   tokens?: { balance: number; charged: number; debtAdded: number };
 };
 
