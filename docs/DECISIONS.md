@@ -500,3 +500,17 @@ The same logic applies to `jobType`. For `source`, no UNKNOWN passes because eve
 **Same idempotency contract.** The webhook + `/api/checkout/confirm` flow is unchanged — both still call `creditCheckoutSession` keyed on the unique `TokenLedger.stripeSessionId`. Embedded vs hosted is purely a rendering choice; the credit / refund machinery is identical.
 
 **Required env.** `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` (a `pk_test_…` or `pk_live_…`) must be set client-side so `loadStripe()` can initialize the SDK. Without it the embed renders a clear inline error instead of silently failing. The server-side `STRIPE_SECRET_KEY` (already required for hosted mode) still applies.
+
+## 46. Six-stage application pipeline + Pipeline table view
+
+**Decision.** The board is a six-stage pipeline — `NEW`/`STARRED`/`APPLIED`/`INTERVIEWING`/`OFFER`/`ARCHIVED` (plus `DELETED` for "Don't Show Again"). Interviewing jobs carry a color-coded `interviewStage` (Recruiter Screen → Waiting for Decision); Archived jobs carry an `archiveReason` (Rejected/Withdrawn/Closed). A separate **Pipeline** tab renders Applied/Interviewing/Offer/Archived as a spreadsheet (`pipeline-table.tsx`) with inline auto-saving notes (`Job.note`) and a styled `.xlsx` export.
+
+**Why permissive server-side transitions.** `PATCH /api/jobs/[id]` records whatever target stage it's sent rather than enforcing a legal-transition graph. The card UI only ever *offers* the legal moves per stage, so the constraint lives in one place (the UI). The server still guards the two correctness-critical rules: `archive` requires a reason (400), and `setInterviewStage`/`setArchiveReason` 409 if the job isn't in that stage. Keeping the server permissive avoids duplicating the transition table and matches the pre-existing pattern.
+
+**Why "View Job Details" stopped applying.** The old primary button both opened the listing *and* set `status = APPLIED`. That conflated "I looked at this" with "I applied" and made it impossible to read a JD without polluting the Applied tab. The link is now inert re: stage; applying is an explicit `Update Status` choice.
+
+**Why a sub-stage/outcome instead of more top-level statuses.** Interview steps (recruiter screen, technical, panel…) and archive reasons (rejected/withdrawn/closed) are *attributes of* a stage, not stages themselves — modelling each as its own `JobStatus` would explode the enum and the tab bar. A nullable `interviewStage`/`archiveReason` keeps the pipeline to six visible stages while still capturing the detail, and clearing them on stage-exit avoids stale data.
+
+**Why XLSX (exceljs), server-side.** CSV can't carry the table's structure/colors. `exceljs` produces a real workbook (column widths, frozen header, autofilter, per-cell fills/borders/hyperlinks). It runs in the route handler (in `serverExternalPackages`) so the ~MB library never reaches the client bundle, and the export re-queries the DB so it always reflects the latest auto-saved notes. The Status/Stage cell colors are the on-screen badge tints flattened onto white (the table sits on `bg-card` = white in light mode) so the sheet matches the UI.
+
+**Why `tab=pipeline` ignores filters.** The Pipeline is an application tracker, not a discovery surface — every job you're actively pursuing should appear regardless of how it scored or which location/seniority chips happen to be set. It's a deliberate early return in `/api/jobs` that skips the narrowing filters and the `minScore` floor (which would otherwise drop unscored rows).

@@ -54,6 +54,8 @@ npx prisma migrate deploy
 
 (not `migrate dev` — `deploy` applies pending migrations non-interactively and refuses to drop/reset). This needs `DATABASE_URL` set; the migration history is part of the repo, so a fresh DB will be brought up to schema state by running `migrate deploy` against it once.
 
+`package.json` now wires a **`postbuild` script** (`prisma migrate deploy`) so a deploy applies pending migrations automatically after `next build` — provided `DATABASE_URL` reaches the production DB at build time (true on Vercel/most hosts). If your build environment can't reach the DB, remove/ignore `postbuild` and run `migrate deploy` from the release/start command instead, or as a one-off before promoting the build. (Shipping code ahead of the schema is what caused the `/api/jobs` 500s when the pipeline/note columns hadn't been applied.)
+
 There is **no seed step** to run. The app is multi-tenant — each user's `Settings` row is created on first access and their `Profile` when they upload a CV, so `npm run db:seed` is a no-op. The first account to register or sign in claims any legacy `userId = null` rows (a no-op on a fresh database). Just make sure `AUTH_SECRET` is set so users can actually sign in.
 
 ---
@@ -147,7 +149,7 @@ Possible but with caveats:
 
 - Set the same env vars (use Vercel's encrypted env UI, **never** commit them).
 - Use a managed Postgres (Neon, Supabase, Render Postgres) — Vercel doesn't provide one bundled.
-- Run `npx prisma migrate deploy` from a one-off CLI session against the managed DB before deploying, or wire it into a `postbuild` script (`"postbuild": "prisma migrate deploy"`) — **this is not currently configured**.
+- A `postbuild` script (`"postbuild": "prisma migrate deploy"`) is **now configured**, so migrations apply automatically after `next build` when `DATABASE_URL` is reachable at build time. If your host builds without DB access, run `npx prisma migrate deploy` from a one-off CLI session against the managed DB before promoting the build instead.
 - Long refresh runs approach the function timeout. `POST /api/jobs/refresh` sets `maxDuration = 300` (clamped to the plan's limit) and applies an internal scoring budget (`REFRESH_BUDGET_MS`, default 45 s) so the request returns a partial-but-successful result instead of a 504 — raise the budget on plans with a higher cap.
 
 ---

@@ -7,6 +7,21 @@ All notable changes to this project are documented here. Format follows [Keep a 
 Multi-tenancy with Auth.js, an in-app token economy, **Stripe payments**, a
 **multi-provider AI layer (Claude + Gemini + Groq)**, and a full **admin backoffice**.
 
+### Added — application pipeline, sub-stages & Pipeline table view
+
+- **Six-stage pipeline.** The board gained **Interviewing / Offer / Archived** tabs alongside Inbox / Starred / Applied (`JobStatus` enum + migrations). Stage moves happen via the star icon (→ Starred), an outlined **"Update Status"** dropdown, and **"Back to Inbox"**; `PATCH /api/jobs/[id]` now takes `star/apply/interview/offer/archive/inbox/delete`.
+- **"View Job Details"** replaces the old **Apply** button — it's a pure link to the listing and no longer changes a job's stage.
+- **Interview sub-stages & archive outcomes.** Interviewing jobs carry a color-coded `interviewStage` (Recruiter Screen → … → Waiting for Decision); Archived jobs carry an `archiveReason` (Rejected / Withdrawn / Closed). Both editable inline via a pill picker (`setInterviewStage` / `setArchiveReason`); new `InterviewStage` / `ArchiveReason` enums.
+- **Pipeline tab** — a spreadsheet view (`pipeline-table.tsx`) over Applied/Interviewing/Offer/Archived with **Company · Role · Status · Stage · Link · Note** columns. Stage shows Applied → "Pending", Offer → "Thinking", else the chosen sub-stage. `tab=pipeline` in `/api/jobs` returns the cross-status set, ignoring board filters.
+- **Inline notes with auto-save.** New `Job.note` + `setNote` action; the Note column saves on a 700 ms debounce + blur.
+- **Styled XLSX export** (`GET /api/jobs/pipeline/export`, `exceljs`) — frozen/auto-filtered header, column widths, Status/Stage cells flattened to the exact on-screen badge colors, and blue underlined "Open" hyperlinks.
+- **`postbuild` script** (`prisma migrate deploy`) so deploys apply pending migrations automatically.
+
+### Changed — board layout & toolbar
+
+- Wider desktop content (`max-w-7xl`), header aligned to match.
+- The "N listings" count, Filters, and Clear List now share one toolbar row below the tabs; on the Pipeline tab that row shows **Export Table**.
+
 ### Added — Groq provider + per-operation scoring split
 
 - **Groq as a free fallback provider** (`src/lib/ai/groq.ts`) — Llama 3.3 via Groq's OpenAI-compatible API (plain `fetch`, no SDK). Registered alongside Claude/Gemini; default fallback chain is **Gemini → Groq → Claude**. New `GROQ_API_KEY` (DB-stored or env). `getAiConfig` runs `reconcileFallback` so a newly-added provider lands at its canonical chain position without a manual re-save.
