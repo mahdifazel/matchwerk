@@ -24,7 +24,7 @@ The original audience is one person — the project owner, searching Product Des
 
 | Layer | Technology | Notes |
 |---|---|---|
-| Framework | Next.js 16.2.6 (App Router, Turbopack dev) | `next.config.ts` declares `pg`, `@prisma/adapter-pg`, `mammoth`, `unpdf`, `stripe` as `serverExternalPackages` |
+| Framework | Next.js 16.2.6 (App Router, Turbopack dev) | `next.config.ts` declares `pg`, `@prisma/adapter-pg`, `mammoth`, `unpdf`, `stripe`, `nodemailer`, `exceljs` as `serverExternalPackages` |
 | Language | TypeScript 5, strict, ES2017 target, `module: esnext` | Alias `@/*` → `./src/*` |
 | UI | React 19, Tailwind CSS 4, `shadcn/ui` (style: `base-nova`), `@base-ui/react` primitives, `lucide-react` icons, `next-themes` | Tailwind 4 is config-less — tokens live in `src/app/globals.css` under `@theme inline` |
 | Fonts | `Inter` (sans body), `Fraunces` (editorial display), `JetBrains Mono` (tabular) — all via `next/font/google` with CSS vars `--font-jh-sans`, `--font-jh-display`, `--font-jh-mono` |
@@ -36,6 +36,7 @@ The original audience is one person — the project owner, searching Product Des
 | AI | Anthropic SDK + Google GenAI (`@google/genai`) | Provider abstraction in `src/lib/ai/*`: active provider (Claude Sonnet/Haiku or Gemini Flash) + fallback chain; switchable in admin |
 | Admin | Role-gated backoffice (`/admin`) | `UserRole` enum; DB-authoritative guards (`src/lib/admin.ts`); `AdminAuditLog`; reports via CSV + `pdf-lib` |
 | File parsing | `mammoth` (DOCX), `unpdf` (PDF) — plus inline TXT/MD |
+| File export | `exceljs` (XLSX) | Pipeline table → styled `.xlsx`, generated server-side (`/api/jobs/pipeline/export`) |
 | Validation | `zod` 4 |
 | Toasts | `sonner` |
 | Lint | `eslint-config-next/core-web-vitals` + `eslint-config-next/typescript` |
@@ -48,9 +49,9 @@ The original audience is one person — the project owner, searching Product Des
 Job_Hunter/
 ├── docker-compose.yml          # Postgres 16 on :5433
 ├── prisma/
-│   ├── schema.prisma           # User(+role/disabledAt), Account, Session, Profile, Settings, SourceCredential(legacy), Job, TokenLedger, AdminAuditLog, AppSetting, PlatformCredential, Plan, RequestLog, Announcement, WebhookEvent, ContactMessage; enums (+ UserRole, ContactMessageStatus, ContactMessageCategory)
+│   ├── schema.prisma           # User(+role/disabledAt), Account, Session, Profile, Settings, SourceCredential(legacy), Job(+interviewStage/archiveReason/note), TokenLedger, AdminAuditLog, AppSetting, PlatformCredential, Plan, RequestLog, Announcement, WebhookEvent, ContactMessage; enums (+ UserRole, InterviewStage, ArchiveReason, ContactMessageStatus, ContactMessageCategory)
 │   ├── seed.ts                 # No-op — Settings/Profile are created per-user on first use
-│   └── migrations/             # …add_auth_multitenant, add_token_billing, add_token_purchase, add_admin_roles, add_platform_config, add_plans, add_request_log, add_announcement, add_webhook_event
+│   └── migrations/             # …add_auth_multitenant, add_token_billing, add_token_purchase, add_admin_roles, add_platform_config, add_plans, add_request_log, add_announcement, add_webhook_event, add_pipeline_stages, add_interview_stage_archive_reason, add_job_note
 ├── prisma.config.ts            # Loads schema + DATABASE_URL via dotenv
 ├── svgo.config.mjs             # Picked up by `npx svgo`; preserves Figma layer IDs (cleanupIds disabled)
 ├── public/                     # Static assets
@@ -79,10 +80,11 @@ Job_Hunter/
     │       ├── account/password/route.ts            # PUT set/change password
     │       ├── tokens/route.ts                       # GET token balance + debt
     │       ├── cv/route.ts                          # GET / POST (multipart, charges) / PATCH (edit summary + chips)
-    │       ├── jobs/route.ts                        # GET filtered listings by tab (+ datePosted cutoff + minScore threshold)
+    │       ├── jobs/route.ts                        # GET filtered listings by tab (+ datePosted cutoff + minScore threshold; tab=pipeline returns Applied/Interviewing/Offer/Archived)
     │       ├── jobs/refresh/route.ts                # POST → fetch, dedupe, pre-score filter, score, persist, charge
-    │       ├── jobs/[id]/route.ts                   # PATCH star/unstar/apply/unapply/delete
+    │       ├── jobs/[id]/route.ts                   # PATCH star/apply/interview/offer/archive/inbox/delete + setInterviewStage/setArchiveReason/setNote
     │       ├── jobs/bulk/route.ts                   # POST bulk delete or bulk unapply
+    │       ├── jobs/pipeline/export/route.ts        # GET → styled .xlsx of the Pipeline (exceljs)
     │       ├── settings/route.ts                    # GET + PUT
     │       ├── sources/route.ts                     # GET runtime source status (now global creds; per-user [id]/credentials route deleted)
     │       ├── checkout/route.ts, checkout/confirm/route.ts  # Stripe Checkout session + return confirmation (credits)
@@ -99,6 +101,7 @@ Job_Hunter/
     │   ├── pricing-table.tsx       # /plans cards → routes to /checkout/[planId]
     │   ├── checkout-embed.tsx      # Stripe Embedded Checkout wrapper (loadStripe + EmbeddedCheckoutProvider)
     │   ├── job-board.tsx, job-card.tsx, match-badge.tsx (exports ScoreMeter)
+    │   ├── pipeline-table.tsx      # Spreadsheet-style Pipeline view (table + inline auto-saving notes)
     │   ├── filter-bar.tsx, refresh-button.tsx, empty-state.tsx
     │   ├── cv-upload.tsx           # Drag-and-drop + inline profile editor
     │   ├── settings-form.tsx       # Job titles list only (API credentials + Sources moved to admin)
@@ -120,7 +123,7 @@ Job_Hunter/
         ├── cv-parser.ts          # extractCvText (PDF/DOCX/TXT, C0-byte sanitized) + parseCvProfile (via runWithAi; emits 3 suggestedJobTitles)
         ├── matcher.ts            # scoreJobs — batched tool-use via runWithAi; role-agnostic prompt + ScoringPreferences from Settings
         ├── repo.ts               # getSessionUserId/getSessionUser (honor impersonation), getSettings, getProfile
-        ├── constants.ts          # SOURCE_META, LOCATION_OPTIONS, SENIORITY/JOBTYPE options, DATE_POSTED_OPTIONS, TAB_STATUSES
+        ├── constants.ts          # SOURCE_META, LOCATION_OPTIONS, SENIORITY/JOBTYPE options, DATE_POSTED_OPTIONS, TAB_STATUSES, PIPELINE_STATUSES, JOB_STATUS_LABEL, INTERVIEW_STAGES, ARCHIVE_REASONS (color metadata + optional short labels), pipelineStageLabel()
         ├── credential-schema.ts  # CLIENT-SAFE: per-source field defs + env-fallback names
         ├── credentials.ts        # SERVER-ONLY: GLOBAL source-key resolution (PlatformCredential→env) + global enable/disable
         ├── infer.ts              # inferSeniority / inferJobType regex heuristics
@@ -167,7 +170,7 @@ Job_Hunter/
 3. **`searchEnabledSources`** (`src/lib/sources/search.ts`) runs **every enabled source in parallel** (recall-first — the old "run the backup tier only if primary < 10" gate was removed; source priority is enforced downstream at dedup + the lexical pre-rank, not by skipping sources). Each source reports `{ ran, count, skippedReason? }`. A shared **freshness net** in `runTier` drops anything older than a per-source max age before scoring/persistence: default **40 days**, **Jooble 14 days** (`MAX_JOB_AGE_DAYS` override); jobs with no publish date are kept (treated as fresh). Adzuna additionally self-caps natively at **31 days** (`max_days_old`) and BA Jobbörse at **40** (`veroeffentlichtseit`) to save upstream quota.
 4. `dedupeRawJobs` collapses cross-source duplicates by SHA-1 of `normalize(title)|normalize(company)|normalize(city)` (after stripping gender markers like `(m/w/d)`).
 5. Split candidates into **repeats vs fresh**: a candidate already in the user's DB — matched by **either `dedupeHash` or the stable `(source, externalId)` pair**, any status including `DELETED` — is a repeat (re-displayed but never re-scored). The `(source, externalId)` match is what keeps an already-applied/starred listing from reappearing even when an aggregator re-massages its title/location text between fetches (which would shift the hash). Previously-hidden jobs stay hidden.
-6. Filter again with `isLikelySameJob` (`src/lib/sources/similarity.ts`) against starred/applied jobs — catches cross-source title variants like *"Senior Product Designer — parental leave cover"*.
+6. Filter again with `isLikelySameJob` (`src/lib/sources/similarity.ts`) against every triaged job (`STARRED`, `APPLIED`, `INTERVIEWING`, `OFFER`, `ARCHIVED`) — catches cross-source title variants like *"Senior Product Designer, parental leave cover"* so a job already in the user's pipeline doesn't resurface in the Inbox.
 7. **Pre-score personalization filter:** when `Settings.defaultSeniority` / `Settings.defaultJobTypes` is narrowed (subset selected), drop jobs that contradict them. `UNKNOWN` always passes (defensive narrow rule — matches `/api/jobs`).
 8. **`scoreJobs`** (`src/lib/matcher.ts`) batches the fresh jobs (10 per call) and asks the **scoring provider** via `runScoringWithAi` (the active provider by default, or Groq when the admin's "Run job scoring on Groq" toggle is on — see §4 AI providers; default model Claude Haiku 4.5) to return `{ score 0-100, explanation, missingSkills[], requiredLanguages[] }` per job. The user prompt now carries a **300-char description snippet** per job (so the model can spot "Deutschkenntnisse erforderlich"-style signals that don't live in title+company+location); the system prompt surfaces the candidate's `languages` and instructs the model to penalize unmet language requirements but **not** to penalize when no language is stated (the product rule — see §10 and DECISIONS #38). `requiredLanguages` is normalised to a subset of `["de", "en"]`; an empty array means no requirement was found. On the Claude path the profile system block is sent with `cache_control: { type: "ephemeral" }` so the same CV doesn't re-cost across batches (Gemini uses `systemInstruction`). The system prompt is otherwise **role-agnostic** — `Settings.jobTitles[0]` and the parsed CV define the candidate's profession; user preferences (seniority, job types, locations) are surfaced as explicit "USER PREFERENCES (from Settings)" with instructions to penalize contradictions. Each provider attempt is logged to `RequestLog`.
 9. `prisma.job.createMany({ skipDuplicates: true })`.
@@ -194,7 +197,7 @@ Job_Hunter/
 - **Balance API/UI:** `GET /api/tokens` and `GET /api/account` expose `{ balance, debt }`. The header pill (`src/components/app-header.tsx`) reads `useTokenBalance()`; after any charging action the client calls `notifyTokensUpdated()` (a `tokens-updated` window event) so the pill refetches. `formatTokens()` renders integers as-is, otherwise one decimal.
 
 ### Board listing (`GET /api/jobs`)
-Filters by tab (`inbox` / `starred` / `applied` → `NEW` / `STARRED` / `APPLIED` via `TAB_STATUSES` in `src/lib/constants.ts`), `sources`, `seniority`, `jobTypes`, `locations`, `languages`, `datePosted`, `minScore`. **Defensive filter rule**: a filter only narrows when the user has deselected at least one option; when everything is on (the default), no filter is applied — otherwise `UNKNOWN`-classified jobs would be hidden. When narrowed, `UNKNOWN` is always included so listings aren't lost to weak classification. See lines 49–67 of `src/app/api/jobs/route.ts`.
+Filters by tab. The status tabs (`inbox` / `starred` / `applied` / `interviewing` / `offer` / `archived` → `NEW` / `STARRED` / `APPLIED` / `INTERVIEWING` / `OFFER` / `ARCHIVED` via `TAB_STATUSES` in `src/lib/constants.ts`), plus `sources`, `seniority`, `jobTypes`, `locations`, `languages`, `datePosted`, `minScore`. **`tab=pipeline`** is a special cross-status view: it returns all `PIPELINE_STATUSES` (Applied/Interviewing/Offer/Archived) and **ignores the narrowing filters + score threshold** (early return, ordered by `appliedAt DESC, fetchedAt DESC`) so every tracked application is listed. **Defensive filter rule**: a filter only narrows when the user has deselected at least one option; when everything is on (the default), no filter is applied — otherwise `UNKNOWN`-classified jobs would be hidden. When narrowed, `UNKNOWN` is always included so listings aren't lost to weak classification. See lines 49–67 of `src/app/api/jobs/route.ts`.
 
 `datePosted` accepts `any` / `24h` / `1w` / `2w` / `1m`. Cutoff is applied as `publishedAt >= cutoff OR (publishedAt IS NULL AND fetchedAt >= cutoff)` — aggregators that don't report a publish date use `fetchedAt` so fresh listings don't get silently filtered out.
 
@@ -206,10 +209,18 @@ Order: starred/inbox sort by `matchScore DESC, fetchedAt DESC`; applied sorts by
 
 **Cancel stale filter fetches.** Filter widgets (especially the Match slider) fire many `onValueChange` events as the user interacts. The client `fetchJobs(signal?)` (`src/components/job-board.tsx`) takes an `AbortSignal`; each effect run creates an `AbortController`, hands its signal to the fetch, and aborts on cleanup. So when filters change, the previous in-flight request is cancelled before the next one starts — an older response can never overwrite a newer one (the "Match filter sometimes doesn't work" race).
 
-### Job actions
-- `PATCH /api/jobs/[id]` accepts `star / unstar / apply / unapply / delete`. `apply` writes `appliedAt = now()`; `unapply` sets `status = NEW, appliedAt = null`; `delete` sets `status = DELETED` (the row stays so dedupe permanently excludes it).
+### Job actions & the application pipeline
+The board is a six-stage pipeline: **Inbox → Starred / Applied → Interviewing → Offer → Archived** (`JobStatus`: `NEW`/`STARRED`/`APPLIED`/`INTERVIEWING`/`OFFER`/`ARCHIVED`, plus `DELETED` for "Don't Show Again"). On the job card (`job-card.tsx`), the primary **"View Job Details"** button is a *pure link* to `job.url` — it never changes a job's stage (the old "Apply" button did). Stage moves are: a **star icon** (Inbox → Starred), an outlined **"Update Status"** dropdown (forward/lateral moves; "Archived" is a submenu of reasons), and **"Back to Inbox"** on every non-Inbox stage.
+
+- `PATCH /api/jobs/[id]` accepts `star / apply / interview / offer / archive / inbox / delete` (stage moves) plus `setInterviewStage / setArchiveReason / setNote` (in-place edits). Transitions are **permissive** — the UI only offers the legal moves; the server just records the target. `apply` stamps `appliedAt = now()`; `inbox` clears it; `archive` **requires** an `archiveReason` (400 otherwise); `interview` defaults `interviewStage` to `RECRUITER_SCREEN`. A stage's `interviewStage`/`archiveReason` is set on entry and cleared whenever the job leaves it. `setInterviewStage`/`setArchiveReason` 409 if the job isn't in that stage.
+- **Interview sub-stages & archive outcomes**: an Interviewing job carries a color-coded `interviewStage` (Recruiter Screen, Hiring Manager, Technical, Take-Home, Panel, Final, Waiting for Decision); an Archived job carries an `archiveReason` (Rejected, Withdrawn, Closed). Both are editable inline on the card via a colored pill picker. Color + label metadata lives in `INTERVIEW_STAGES` / `ARCHIVE_REASONS` (`src/lib/constants.ts`), each with an optional `short` label for tight surfaces.
 - `POST /api/jobs/bulk` accepts `{ action: "delete" | "unapply", ids }`. `unapply` is guarded by `where: { status: "APPLIED" }` so a mistargeted bulk call can't reset arbitrary rows.
-- **"Clear List"** (Inbox/Starred) is a **client-side soft clear**, not a delete: `job-board.tsx` adds the visible IDs to a cleared-IDs set and hides them; the rows stay in the DB. The set is **persisted in `localStorage`** (`mw:clearedJobIds`, hydrated lazily via `getClearedIds()`), so the cleared view survives a page reload and tab switches. A **Research** run resets it (clears the key) so cleared jobs reappear along with new listings. (On the Applied tab the button instead bulk-unapplies via `/api/jobs/bulk`.)
+- **"Clear List"** (Inbox/Starred) is a **client-side soft clear**, not a delete: `job-board.tsx` adds the visible IDs to a cleared-IDs set and hides them; the rows stay in the DB. The set is **persisted in `localStorage`** (`mw:clearedJobIds`, hydrated lazily via `getClearedIds()`), so the cleared view survives a page reload and tab switches. A **Research** run resets it (clears the key) so cleared jobs reappear along with new listings. (On the Applied tab the button instead bulk-unapplies via `/api/jobs/bulk`.) Soft-clear is only applied on the Inbox/Starred tabs.
+
+### Pipeline view (spreadsheet) + XLSX export
+- A **Pipeline tab** sits to the right of the status tabs (its own nav); Filters/Clear List moved to a secondary toolbar row below the tabs that also carries the **"N listings"** count, and on Pipeline that toolbar shows **Export Table** instead.
+- `pipeline-table.tsx` renders a white-card table over Applied/Interviewing/Offer/Archived with columns **Company · Role · Status · Stage · Link · Note**. The **Stage** column follows product rules: Applied → "Pending", Offer → "Thinking", Interviewing/Archived → the user-selected sub-stage/outcome (via `pipelineStageLabel`). **Link** opens `job.url`. **Note** is an inline `<textarea>` that **auto-saves** (700 ms debounce + on blur) via `setNote` → persisted on `Job.note`.
+- **Export** (`GET /api/jobs/pipeline/export`) builds a styled `.xlsx` server-side with `exceljs`: frozen/auto-filtered header, column widths, and Status/Stage cells whose fills/borders/text are the exact light-mode flatten of the on-screen badge colors, plus blue underlined "Open" hyperlinks. The client just triggers a download of the authenticated endpoint, so it always reflects the latest saved notes.
 
 ### Source credentials (now global / admin-managed)
 - Source API keys are **global platform secrets**, not per-user. Adapters call `getSourceCredentials(sourceId)` from `src/lib/credentials.ts`, which resolves `PlatformCredential` (keyed by the field's env-var name) → `process.env` → undefined, via `src/lib/platform.ts` (per-process cache).
@@ -254,13 +265,13 @@ Order: starred/inbox sort by `matchScore DESC, fetchedAt DESC`; applied sorts by
 - **`Profile`** — one per user (`userId String? @unique`) — `fileName`, full `rawCvText`, structured fields (`summary`, `skills[]`, `tools[]`, `industries[]`, `languages[]` (free text — e.g. `"German (native)"`), `keywords[]`, `seniority`, `yearsExperience`), `parsedAt`, `updatedAt`.
 - **`Settings`** — one per user (`userId String? @unique`) — `jobTitles[]`, `defaultLocations[]`, `defaultSeniority[]`, `defaultJobTypes[]`, `defaultSources[]`.
 - **`SourceCredential`** — **legacy/unused**. Source keys are now global (`PlatformCredential`); this per-user table is kept only for historical rows.
-- **`Job`** — `userId`, `source` (enum), `externalId`, `dedupeHash`, title/company/location/url/description, `publisher` (for aggregators), `jobType`/`seniority` enums, `publishedAt`, `matchScore`/`matchExplanation`/`missingSkills[]`/`requiredLanguages[]`/`scoredAt`, `status` (`NEW`/`STARRED`/`APPLIED`/`DELETED`), `appliedAt`. **`requiredLanguages`** is a `String[] @default([])` normalised to a subset of `["de", "en"]`; the scorer fills it from the JD, and **an empty array is meaningful**: per DECISIONS #38, it means no language requirement was stated, so the board's "English" filter treats the job as English-suffices. Dedupe uniqueness is **per user** (`@@unique([userId, dedupeHash])`). Indexed by `[userId, status]`, `status`, and `source`.
+- **`Job`** — `userId`, `source` (enum), `externalId`, `dedupeHash`, title/company/location/url/description, `publisher` (for aggregators), `jobType`/`seniority` enums, `publishedAt`, `matchScore`/`matchExplanation`/`missingSkills[]`/`requiredLanguages[]`/`scoredAt`, `status` (`NEW`/`STARRED`/`APPLIED`/`INTERVIEWING`/`OFFER`/`ARCHIVED`/`DELETED`), `appliedAt`, **`interviewStage`** (`InterviewStage?`, set while `INTERVIEWING`), **`archiveReason`** (`ArchiveReason?`, set while `ARCHIVED`), **`note`** (`String @default("")`, the inline Pipeline note). `interviewStage`/`archiveReason` are cleared whenever the job leaves their stage. **`requiredLanguages`** is a `String[] @default([])` normalised to a subset of `["de", "en"]`; the scorer fills it from the JD, and **an empty array is meaningful**: per DECISIONS #38, it means no language requirement was stated, so the board's "English" filter treats the job as English-suffices. Dedupe uniqueness is **per user** (`@@unique([userId, dedupeHash])`). Indexed by `[userId, status]`, `status`, and `source`.
 - **`ContactMessage`** — user-submitted feedback. FK to `User` (`onDelete: Cascade`). Snapshots `name` + `email` at submit time so the admin inbox stays accurate even if the user later renames or deletes. `subject`, `category` (enum), `body`, `status` (enum), `createdAt`, `readAt?`, `repliedAt?`. Indexed by `[status, createdAt]` and `[userId, createdAt]`.
-- **Enums** — `UserRole` (`USER`/`ADMIN`/`SUPER_ADMIN`); `JobSourceId` (`BA_JOBBOERSE`, `JSEARCH`, `ADZUNA`, `FANTASTIC_JOBS`, `JOOBLE`, plus 7 legacy values kept for historical rows: `JOBSPY` (the removed scraping fallback), `INDEED`, `LINKEDIN`, `STEPSTONE`, `XING`, `GLASSDOOR`, `MONSTER`); `JobStatus`; `Seniority`; `JobType`; `ContactMessageStatus` (`NEW`/`READ`/`REPLIED`); `ContactMessageCategory` (`QUESTION`/`BUG`/`FEATURE_REQUEST`/`OTHER`).
+- **Enums** — `UserRole` (`USER`/`ADMIN`/`SUPER_ADMIN`); `JobSourceId` (`BA_JOBBOERSE`, `JSEARCH`, `ADZUNA`, `FANTASTIC_JOBS`, `JOOBLE`, plus 7 legacy values kept for historical rows: `JOBSPY` (the removed scraping fallback), `INDEED`, `LINKEDIN`, `STEPSTONE`, `XING`, `GLASSDOOR`, `MONSTER`); `JobStatus` (`NEW`/`STARRED`/`APPLIED`/`INTERVIEWING`/`OFFER`/`ARCHIVED`/`DELETED`); `InterviewStage` (`RECRUITER_SCREEN`/`HIRING_MANAGER`/`TECHNICAL`/`TAKE_HOME`/`PANEL`/`FINAL`/`WAITING_DECISION`); `ArchiveReason` (`REJECTED`/`WITHDRAWN`/`CLOSED`); `Seniority`; `JobType`; `ContactMessageStatus` (`NEW`/`READ`/`REPLIED`); `ContactMessageCategory` (`QUESTION`/`BUG`/`FEATURE_REQUEST`/`OTHER`).
 
 > `userId` is nullable on the four data models only so pre-multi-tenancy rows survive migration as orphans until the first account claims them (`src/lib/claim.ts`). New rows always get the authenticated `userId`, and every query scopes by it.
 
-> The board's tab labels are decoupled from `JobStatus`. The default tab is **Inbox** (id `"inbox"`), which `TAB_STATUSES.inbox = "NEW"` maps to the `NEW` enum value — no migration was needed to rename the tab.
+> The board's tab labels are decoupled from `JobStatus`. The default tab is **Inbox** (id `"inbox"`), which `TAB_STATUSES.inbox = "NEW"` maps to the `NEW` enum value — no migration was needed to rename the tab. The **Pipeline** tab (id `"pipeline"`) has no single `JobStatus` — it's a cross-status view handled as an early return in `/api/jobs`.
 
 The Prisma client is generated to `src/generated/prisma/` (gitignored) — import types from `@/generated/prisma/client` and `@/generated/prisma/enums`.
 

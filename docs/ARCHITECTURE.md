@@ -82,10 +82,11 @@ src/app/
     ├── tokens/route.ts                 # GET — token balance + debt
     ├── cv/route.ts                     # GET, POST(multipart, charges 25), PATCH(JSON: editable profile fields)
     ├── jobs/
-    │   ├── route.ts                    # GET — tab + filter query (incl. datePosted)
+    │   ├── route.ts                    # GET — tab + filter query (incl. datePosted; tab=pipeline = cross-status)
     │   ├── refresh/route.ts            # POST — full pipeline, charges per job
-    │   ├── [id]/route.ts               # PATCH — star/unstar/apply/unapply/delete
-    │   └── bulk/route.ts               # POST  — bulk delete or bulk unapply
+    │   ├── [id]/route.ts               # PATCH — star/apply/interview/offer/archive/inbox/delete + setInterviewStage/setArchiveReason/setNote
+    │   ├── bulk/route.ts               # POST  — bulk delete or bulk unapply
+    │   └── pipeline/export/route.ts    # GET — styled .xlsx of the Pipeline (exceljs)
     ├── settings/route.ts               # GET, PUT — Zod-validated
     ├── sources/
     │   ├── route.ts                    # GET — runtime status of each source (+ editable, credentialSource)
@@ -294,7 +295,8 @@ grant(userId, amount, reason)   ── pays down debt first, then credits balanc
 
 ```
 Query string:
-  tab            inbox|starred|applied          → mapped to JobStatus via TAB_STATUSES
+  tab            inbox|starred|applied|interviewing|offer|archived → mapped to JobStatus via TAB_STATUSES
+                 pipeline                       → cross-status (Applied/Interviewing/Offer/Archived); ignores filters
   sources        CSV of JobSourceId              → only narrows if subset selected
   seniority      CSV of Seniority                → only narrows if subset, UNKNOWN passes
   jobTypes       CSV of JobType                  → only narrows if subset, UNKNOWN passes
@@ -322,10 +324,16 @@ The "only narrows if subset" rule is critical for fresh jobs whose seniority/typ
 | HTTP | Path | Body | Effect |
 |---|---|---|---|
 | `PATCH` | `/api/jobs/:id` | `{ action: "star" }` | `status = STARRED` |
-| `PATCH` | `/api/jobs/:id` | `{ action: "unstar" }` | `status = NEW` |
 | `PATCH` | `/api/jobs/:id` | `{ action: "apply" }` | `status = APPLIED`, `appliedAt = now()` |
-| `PATCH` | `/api/jobs/:id` | `{ action: "unapply" }` | `status = NEW`, `appliedAt = null` |
+| `PATCH` | `/api/jobs/:id` | `{ action: "interview" }` | `status = INTERVIEWING` (defaults `interviewStage = RECRUITER_SCREEN`) |
+| `PATCH` | `/api/jobs/:id` | `{ action: "offer" }` | `status = OFFER` |
+| `PATCH` | `/api/jobs/:id` | `{ action: "archive", archiveReason }` | `status = ARCHIVED` (reason required) |
+| `PATCH` | `/api/jobs/:id` | `{ action: "inbox" }` | `status = NEW`, `appliedAt = null` (Back to Inbox) |
 | `PATCH` | `/api/jobs/:id` | `{ action: "delete" }` | `status = DELETED` (row kept for dedupe) |
+| `PATCH` | `/api/jobs/:id` | `{ action: "setInterviewStage", interviewStage }` | in-place sub-stage edit (409 unless INTERVIEWING) |
+| `PATCH` | `/api/jobs/:id` | `{ action: "setArchiveReason", archiveReason }` | in-place outcome edit (409 unless ARCHIVED) |
+| `PATCH` | `/api/jobs/:id` | `{ action: "setNote", note }` | inline Pipeline note (auto-saved) |
+| `GET` | `/api/jobs/pipeline/export` | — | styled `.xlsx` of the Pipeline (exceljs) |
 | `POST` | `/api/jobs/bulk` | `{ action: "delete", ids: string[] }` | sets each row to `DELETED` |
 | `POST` | `/api/jobs/bulk` | `{ action: "unapply", ids: string[] }` | unapplies (guarded by `status: "APPLIED"`) |
 | `PATCH` | `/api/cv` | `{ summary?, skills?, tools?, industries?, languages?, keywords? }` | partial profile edit (Zod-validated) |
@@ -522,7 +530,8 @@ secrets      (Json)               externalId, dedupeHash
 updatedAt                         title, company, location, url, publisher?, description
 @@unique([userId, sourceId])      jobType (enum), seniority (enum), publishedAt?
                                   matchScore?, matchExplanation?, missingSkills[], requiredLanguages[], scoredAt?
-                                  status (NEW|STARRED|APPLIED|DELETED), appliedAt?
+                                  status (NEW|STARRED|APPLIED|INTERVIEWING|OFFER|ARCHIVED|DELETED), appliedAt?
+                                  interviewStage? (InterviewStage), archiveReason? (ArchiveReason), note (String "")
                                   fetchedAt, updatedAt
                                   @@unique([userId, dedupeHash])
                                   @@index([userId, status]) @@index([status]) @@index([source])

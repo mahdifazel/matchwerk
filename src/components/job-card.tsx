@@ -9,7 +9,7 @@ import {
   ChevronDown,
   MessagesSquare,
   Star,
-  Trash2,
+  ThumbsDown,
   Undo2,
 } from "lucide-react";
 import { ScoreMeter } from "@/components/match-badge";
@@ -290,7 +290,7 @@ export function JobCard({
                   aria-label="Don't show this job again"
                   onClick={() => onAction(job.id, "delete")}
                 >
-                  <Trash2 className="size-3.5" />
+                  <ThumbsDown className="size-3.5" />
                   <span className="text-[0.85rem]">Don&apos;t Show Again</span>
                 </Button>
               )}
