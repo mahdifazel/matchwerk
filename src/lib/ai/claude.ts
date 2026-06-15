@@ -81,7 +81,7 @@ const SCORE_TOOL = {
             missingSkills: {
               type: "array",
               items: { type: "string" },
-              description: "Skills the role needs that the CV doesn't show. Empty if none.",
+              description: "Skills the role needs that the CV doesn't show. Do NOT include skills the candidate already has. Empty if none.",
             },
             requiredLanguages: {
               type: "array",

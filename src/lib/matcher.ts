@@ -36,6 +36,33 @@ export type JobScore = {
 // tool-use JSON mid-batch and silently dropping the trailing jobs.
 const BATCH_SIZE = 10;
 
+// Lowercase + strip punctuation/whitespace so "Figma", "figma," and " FIGMA "
+// all compare equal when matching gaps against the candidate's own skills.
+function normalizeSkill(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9+#]/g, "");
+}
+
+// Drop any "gap" the candidate already has (exact normalized match), trim, and
+// de-dupe. Guarantees "Gaps" never echoes the candidate's own skills even if the
+// model ignores the prompt.
+function filterMissingSkills(
+  raw: unknown,
+  owned: Set<string>,
+): string[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const item of raw) {
+    if (typeof item !== "string") continue;
+    const label = item.trim();
+    const norm = normalizeSkill(label);
+    if (!norm || owned.has(norm) || seen.has(norm)) continue;
+    seen.add(norm);
+    out.push(label);
+  }
+  return out;
+}
+
 function buildSystemPrompt(
   profile: Profile,
   jobTitles: string[],
@@ -68,6 +95,7 @@ function buildSystemPrompt(
     "",
     "When a job explicitly requires a language the candidate does not appear to speak fluently, strongly penalize the score. If the JD makes no language requirement, assume English is sufficient — do not penalize.",
     "Also emit `requiredLanguages` per job: include 'de' only when the JD explicitly requires German; include 'en' only when English is explicitly required. If neither is stated, leave the array empty.",
+    "For `missingSkills`, list ONLY skills or tools the job requires that are NOT already in the candidate's Skills / Tools / Keywords above — the genuine gaps the candidate would need to close for this role. Never list a skill the candidate already has. Return an empty array if there are no clear gaps.",
   ];
   if (
     prefs.preferredSeniority.length > 0 ||
@@ -98,6 +126,16 @@ async function scoreBatch(
   batch: JobToScore[],
 ): Promise<Map<string, JobScore>> {
   const systemPrompt = buildSystemPrompt(profile, jobTitles, prefs);
+
+  // Safety net: never surface a skill the candidate already has as a "gap",
+  // regardless of what the model returns. Normalize the profile's own skills /
+  // tools / keywords into a lookup set.
+  const owned = new Set(
+    [...profile.skills, ...profile.tools, ...profile.keywords]
+      .map(normalizeSkill)
+      .filter(Boolean),
+  );
+
   const userPrompt = `Score these jobs:\n\n${batch
     .map((j) => {
       const lines = [
@@ -129,7 +167,7 @@ async function scoreBatch(
     result.set(s.id, {
       score: Math.max(0, Math.min(100, Math.round(s.score))),
       explanation: typeof s.explanation === "string" ? s.explanation : "",
-      missingSkills: Array.isArray(s.missingSkills) ? s.missingSkills : [],
+      missingSkills: filterMissingSkills(s.missingSkills, owned),
       requiredLanguages: [...new Set(langs)],
     });
   }

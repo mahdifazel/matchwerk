@@ -57,7 +57,12 @@ const SCORES_SCHEMA = {
           id: { type: Type.STRING },
           score: { type: Type.INTEGER },
           explanation: { type: Type.STRING },
-          missingSkills: { type: Type.ARRAY, items: { type: Type.STRING } },
+          missingSkills: {
+            type: Type.ARRAY,
+            items: { type: Type.STRING },
+            description:
+              "Skills or tools the role requires that the candidate's CV does NOT show. Do NOT include skills the candidate already has. Empty array if there are no clear gaps.",
+          },
           requiredLanguages: {
             type: Type.ARRAY,
             items: { type: Type.STRING, enum: ["de", "en"], format: "enum" },

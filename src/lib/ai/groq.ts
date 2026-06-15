@@ -92,7 +92,7 @@ const SCORE_INSTRUCTION = `Respond with ONLY a JSON object (no prose, no markdow
   "id": string,                 // the job id being scored
   "score": number,              // match score 0-100
   "explanation": string,        // one concise sentence on the fit
-  "missingSkills": string[],    // skills the role needs that the CV lacks; [] if none
+  "missingSkills": string[],    // skills the role needs that the CV lacks; never skills the candidate already has; [] if none
   "requiredLanguages": string[] // subset of ["de","en"] the job explicitly REQUIRES; [] when none stated (means English suffices)
 } ] }`;
 
