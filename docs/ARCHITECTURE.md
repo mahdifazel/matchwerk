@@ -85,7 +85,7 @@ src/app/
     │   ├── route.ts                    # GET — tab + filter query (incl. datePosted; tab=pipeline = cross-status)
     │   ├── refresh/route.ts            # POST — full pipeline, charges per job
     │   ├── [id]/route.ts               # PATCH — star/apply/interview/offer/archive/inbox/delete + setInterviewStage/setArchiveReason/setNote
-    │   ├── bulk/route.ts               # POST  — bulk delete or bulk unapply
+    │   ├── bulk/route.ts               # POST  — bulk delete (soft) / unapply / purge (hard delete)
     │   └── pipeline/export/route.ts    # GET — styled .xlsx of the Pipeline (exceljs)
     ├── settings/route.ts               # GET, PUT — Zod-validated
     ├── sources/
@@ -334,8 +334,10 @@ The "only narrows if subset" rule is critical for fresh jobs whose seniority/typ
 | `PATCH` | `/api/jobs/:id` | `{ action: "setArchiveReason", archiveReason }` | in-place outcome edit (409 unless ARCHIVED) |
 | `PATCH` | `/api/jobs/:id` | `{ action: "setNote", note }` | inline Pipeline note (auto-saved) |
 | `GET` | `/api/jobs/pipeline/export` | — | styled `.xlsx` of the Pipeline (exceljs) |
-| `POST` | `/api/jobs/bulk` | `{ action: "delete", ids: string[] }` | sets each row to `DELETED` |
+| `POST` | `/api/jobs/bulk` | `{ action: "delete", ids: string[] }` | sets each row to `DELETED` (soft, kept for dedupe) |
 | `POST` | `/api/jobs/bulk` | `{ action: "unapply", ids: string[] }` | unapplies (guarded by `status: "APPLIED"`) |
+| `POST` | `/api/jobs/bulk` | `{ action: "purge", ids: string[] }` | **hard delete** (`deleteMany`, scoped to caller) — permanent |
+| `GET` | `/api/jobs?…&idsOnly=1` | — | full filtered ID set (uncapped) for whole-tab Clear List |
 | `PATCH` | `/api/cv` | `{ summary?, skills?, tools?, industries?, languages?, keywords? }` | partial profile edit (Zod-validated) |
 | `PUT` | `/api/settings` | full `SettingsDTO` payload | validated, source-id enum derived from `ALL_SOURCE_IDS` |
 | `GET / PUT / DELETE` | `/api/sources/[id]/credentials` | per-source secrets | DB-backed credentials, masked status responses |
@@ -345,7 +347,7 @@ The "only narrows if subset" rule is critical for fresh jobs whose seniority/typ
 | `GET` | `/api/tokens` | — | `{ balance, debt }` for the header pill |
 | `GET` | `/api/account` | — | Account details + `{ tokenBalance, tokenDebt }` |
 
-**Board UI semantics for Clear List:** a non-destructive, view-only soft clear (no DB write) with the same confirmation dialog on every status tab — the visible IDs go into a `localStorage` set (`mw:clearedJobIds`) and are filtered out of fetches until the next Research. The Pipeline tab ignores the cleared set (always shows the full tracker). Superseded DECISIONS #30.
+**Board UI semantics for Clear List:** the same confirmation dialog on every status tab, acting on the **whole tab, not just the loaded page** — on open the board fetches the full filtered ID set (`GET /api/jobs?…&idsOnly=1`, uncapped) and the dialog shows the true total. **Default** is a non-destructive, view-only soft clear (no DB write): the IDs go into a `localStorage` set (`mw:clearedJobIds`) and are filtered out of fetches until the next Research. An **opt-in "Permanently delete jobs" checkbox** instead hard-deletes the full set via `POST /api/jobs/bulk { action: "purge" }` (chunked 500/call) — irreversible. The Pipeline tab ignores the cleared set (always shows the full tracker) and has no Clear List. See DECISIONS #47 (soft-clear uniformity) and #49 (whole-tab + permanent delete); superseded DECISIONS #30.
 
 **Board UI semantics for the "New" badge:** `/api/jobs/refresh` returns `newJobIds` (the rows it just inserted); the client stores them in `localStorage` (`mw:newJobIds`) and renders a blue *New* badge on those cards, replacing the set each Research run. See DECISIONS #48.
 
@@ -570,7 +572,7 @@ Every data row carries a `userId` (`onDelete: Cascade` from `User`). `userId` is
 - `refreshing` — drives the refresh CTA state
 - `pending: Set<string>` — per-job optimistic action lock
 - `hasProfile` — whether to show the "no CV" alert
-- `unapplyOpen`, `unapplying` — confirmation dialog state for bulk unapply on the Applied tab
+- `clearOpen`, `clearPermanent`, `clearing`, `clearTargets` — Clear List dialog state: open flag, the "Permanently delete" checkbox, the in-flight purge flag, and the full tab ID set (`null` while resolving via `idsOnly`)
 - `showFilters` — collapsible filter panel
 - `heroTitle` — dynamic hero title sourced from `Settings.jobTitles[0]`, refreshed on `cv-updated` / `settings-updated` window events
 

@@ -7,6 +7,12 @@ All notable changes to this project are documented here. Format follows [Keep a 
 Multi-tenancy with Auth.js, an in-app token economy, **Stripe payments**, a
 **multi-provider AI layer (Claude + Gemini + Groq)**, and a full **admin backoffice**.
 
+### Added — Clear List: whole-tab scope + permanent delete
+
+- **Whole-tab Clear List.** Clear List now clears **every job in the tab in one action**, not just the loaded page. On open, the board resolves the full filtered ID set via `GET /api/jobs?…&idsOnly=1` (uncapped, so it reaches jobs past the `MAX_BOARD_JOBS` inbox cap) and the dialog reports the true total. Fixes having to clear repeatedly when there were more jobs than the listing cap.
+- **Permanent delete option.** The Clear List dialog gained an opt-in **"Permanently delete jobs"** checkbox. Unchecked = the existing non-destructive soft clear; checked = a hard delete via the new `POST /api/jobs/bulk { action: "purge" }` (`prisma.job.deleteMany`, chunked 500/call). Irreversible — and because the row is gone, a still-live listing can resurface as a fresh find on a later Research (see DECISIONS #49).
+- **Checkbox UI primitive** (`src/components/ui/checkbox.tsx`) wrapping `@base-ui/react/checkbox`.
+
 ### Added — board UX: pipeline search, "New" badges, sticky tabs, mobile polish
 
 - **Pipeline search.** The Pipeline toolbar replaces the "N listings" count with a search box (case-insensitive over company, role, location, note, status). The count moves beside it and shows **matches when searching, total otherwise**; a custom clear (✕) button replaces the browser's native `type="search"` X, and a no-match state renders a "No matching jobs" empty state.
