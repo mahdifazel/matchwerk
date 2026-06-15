@@ -151,6 +151,10 @@ Possible but with caveats:
 - Use a managed Postgres (Neon, Supabase, Render Postgres) — Vercel doesn't provide one bundled.
 - A `postbuild` script (`"postbuild": "prisma migrate deploy"`) is **now configured**, so migrations apply automatically after `next build` when `DATABASE_URL` is reachable at build time. If your host builds without DB access, run `npx prisma migrate deploy` from a one-off CLI session against the managed DB before promoting the build instead.
 - Long refresh runs approach the function timeout. `POST /api/jobs/refresh` sets `maxDuration = 300` (clamped to the plan's limit) and applies an internal scoring budget (`REFRESH_BUDGET_MS`, default 45 s) so the request returns a partial-but-successful result instead of a 504 — raise the budget on plans with a higher cap.
+  - **The board auto-continues a Research run until the candidate set is fully scored** (one click; the client re-calls `/api/jobs/refresh` with `{ continuation: true }` while the response reports `pendingMore`, and continuation passes don't re-bill repeats, so an N-pass run costs the same as one complete run). For this to work, `REFRESH_BUDGET_MS` (in **milliseconds**) **must stay strictly below the platform's function cap** so each pass returns — persisting + billing — before the cap kills it.
+    - **Vercel Pro + Fluid Compute (300 s cap)** or self-hosted/Docker: set **`REFRESH_BUDGET_MS=240000`** (240 s) → typically completes in a single pass.
+    - **Vercel Hobby (60 s cap):** set **`REFRESH_BUDGET_MS=50000`** (50 s) → completes in a few automatic passes.
+    - If the loop hits its pass ceiling, the board shows a "More jobs remain; run again to finish" note as a fallback.
 
 ---
 

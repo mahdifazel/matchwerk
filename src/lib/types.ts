@@ -77,6 +77,8 @@ export type RefreshResult = {
   reports: SourceRunReportDTO[];
   /** IDs of jobs inserted by this run (flagged with a "New" badge in the board). */
   newJobIds: string[];
+  /** True when the run left fresh jobs unscored (candidate cap or deadline) — run again to finish. */
+  pendingMore?: boolean;
   tokens?: { balance: number; charged: number; debtAdded: number };
 };
 

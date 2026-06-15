@@ -72,11 +72,17 @@ const ALL_FILTERS: Filters = {
 };
 
 // Estimated-research ETA. The card targets the last measured run (persisted in
-// localStorage, clamped to a sane band); first-ever run uses the default.
-const REFRESH_ETA_KEY = "mw:lastRefreshMs";
-const REFRESH_ETA_DEFAULT = 55_000;
+// localStorage, clamped to a sane band); first-ever run uses the default. A
+// Research click auto-continues across passes until the candidate set is fully
+// scored, so a real run can take a couple of minutes — the band is wide enough
+// to preserve that measurement (the old 75s ceiling clamped it down to a wrong,
+// too-fast estimate) and self-tune from there.
+// v2: bumped when auto-continue landed so pre-auto-continue single-pass
+// measurements (much faster, e.g. ~22s) are discarded rather than shown stale.
+const REFRESH_ETA_KEY = "mw:lastRefreshMs:v2";
+const REFRESH_ETA_DEFAULT = 90_000;
 const REFRESH_ETA_MIN = 20_000;
-const REFRESH_ETA_MAX = 75_000;
+const REFRESH_ETA_MAX = 240_000;
 
 function readRefreshEta(): number {
   if (typeof window === "undefined") return REFRESH_ETA_DEFAULT;
@@ -111,6 +117,11 @@ function writeClearedIds(ids: Set<string>): void {
 // badge survives reloads/tab switches; the next Research replaces the set with
 // that run's fresh IDs (so older "New" flags clear and the latest ones light up).
 const NEW_IDS_KEY = "mw:newJobIds";
+
+// A single Research click auto-continues until the candidate set is fully scored
+// (the server bills each pass under the function timeout). This caps the loop so
+// a server that never reports completion can't spin forever.
+const MAX_REFRESH_PASSES = 6;
 
 function readNewIds(): Set<string> {
   if (typeof window === "undefined") return new Set();
@@ -304,38 +315,80 @@ export function JobBoard() {
     setRefreshing(true);
     const t0 = performance.now();
     try {
-      const res = await fetch("/api/jobs/refresh", { method: "POST" });
-      const data = await res.json();
-      if (!res.ok) {
-        toast.error(data.error ?? "Refresh failed.");
-        return;
+      // Auto-continue: the server scores as much of the candidate set as fits
+      // under its function timeout, then reports `pendingMore`. We keep calling
+      // (continuation passes don't re-bill repeats) until it's fully scored, the
+      // pass ceiling is hit, or a pass makes no progress.
+      let totalAdded = 0;
+      let totalSpent = 0;
+      let lastScanned = 0;
+      const allNewIds = new Set<string>();
+      let pass = 0;
+      let incomplete = false;
+
+      for (; pass < MAX_REFRESH_PASSES; pass++) {
+        const res = await fetch("/api/jobs/refresh", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ continuation: pass > 0 }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          // First pass failed outright — surface the error and bail. A later
+          // pass failing just stops the loop; the progress so far stands.
+          if (pass === 0) {
+            toast.error(data.error ?? "Refresh failed.");
+            return;
+          }
+          incomplete = true;
+          break;
+        }
+        const result = data as RefreshResult;
+        totalAdded += result.added ?? 0;
+        totalSpent += result.tokens?.charged ?? 0;
+        lastScanned = result.scanned ?? lastScanned;
+        for (const id of result.newJobIds ?? []) allNewIds.add(id);
+
+        if (!result.pendingMore) break;
+        // Server says more remain but this pass added nothing — stop rather than
+        // spin (transient scoring failures that aren't clearing).
+        if ((result.added ?? 0) === 0) {
+          incomplete = true;
+          break;
+        }
+        // Loop would exit naturally at the ceiling; flag it as incomplete.
+        if (pass === MAX_REFRESH_PASSES - 1) incomplete = true;
       }
-      // Remember how long a successful run took so the next ETA self-tunes.
+
+      // Remember how long the whole (possibly multi-pass) run took so the next
+      // ETA self-tunes.
       window.localStorage.setItem(
         REFRESH_ETA_KEY,
         String(Math.round(performance.now() - t0)),
       );
-      const result = data as RefreshResult;
-      const spent = result.tokens?.charged ?? 0;
+
       const spentText =
-        spent > 0 ? ` · spent ${formatTokens(spent)} tokens` : "";
+        totalSpent > 0 ? ` · spent ${formatTokens(totalSpent)} tokens` : "";
+      const incompleteText = incomplete
+        ? " More jobs remain; run again to finish."
+        : "";
       toast.success(
-        (result.added > 0
-          ? `Added ${result.added} new job${result.added === 1 ? "" : "s"} (scanned ${result.scanned})`
-          : `No new jobs, scanned ${result.scanned} listings`) +
+        (totalAdded > 0
+          ? `Added ${totalAdded} new job${totalAdded === 1 ? "" : "s"} (scanned ${lastScanned})`
+          : `No new jobs, scanned ${lastScanned} listings`) +
           spentText +
-          ".",
+          "." +
+          incompleteText,
       );
       notifyTokensUpdated();
       // A fresh Research means the user wants to see everything again, so
       // forget anything they soft-cleared from the Inbox view.
       clearedIdsRef.current = new Set();
       writeClearedIds(clearedIdsRef.current);
-      // Flag this run's freshly added jobs with the blue "New" badge, replacing
-      // any flags from a previous run.
-      const fresh = new Set(result.newJobIds ?? []);
-      setNewIds(fresh);
-      writeNewIds(fresh);
+      // Flag every job added across this run's passes with the blue "New" badge,
+      // replacing any flags from a previous run.
+      setNewIds(allNewIds);
+      writeNewIds(allNewIds);
       await fetchJobs();
     } catch {
       toast.error("Refresh failed.");

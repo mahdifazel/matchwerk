@@ -15,6 +15,7 @@ import { checkResearch } from "@/lib/limits";
 import { searchEnabledSources } from "@/lib/sources";
 import { isBlockedPublisher } from "@/lib/sources/blocklist";
 import { dedupeRawJobs } from "@/lib/sources/dedupe";
+import { companyBlockKey } from "@/lib/sources/normalize";
 import { isLikelySameJob } from "@/lib/sources/similarity";
 
 // Fans out to several job APIs + batched AI scoring. Raised to the Pro/Fluid
@@ -32,9 +33,19 @@ export const maxDuration = 300;
 // leaves headroom under a 60s cap for the final in-flight wave + persist/charge.
 const SCORING_BUDGET_MS = Number(process.env.REFRESH_BUDGET_MS) || 45_000;
 
-export async function POST() {
+export async function POST(request: Request) {
   try {
-    return await runRefresh();
+    // Optional body: { continuation?: boolean }. A continuation pass is the
+    // client auto-continuing the same Research action after a deadline-trimmed
+    // run, so it must not re-bill the re-display of repeats already charged.
+    let continuation = false;
+    try {
+      const body = (await request.json()) as { continuation?: boolean } | null;
+      continuation = body?.continuation === true;
+    } catch {
+      // No/!JSON body — a normal first pass.
+    }
+    return await runRefresh(continuation);
   } catch (err) {
     const message =
       err instanceof Error ? err.message : "Refresh failed unexpectedly.";
@@ -42,7 +53,7 @@ export async function POST() {
   }
 }
 
-async function runRefresh() {
+async function runRefresh(continuation: boolean) {
   const deadline = Date.now() + SCORING_BUDGET_MS;
   const userId = await getSessionUserId();
   if (!userId) {
@@ -133,19 +144,31 @@ async function runRefresh() {
   const repeatsCount = considered.filter(isRepeat).length;
   let fresh = considered.filter((j) => !isRepeat(j));
 
-  // 3b. Also drop anything that LOOKS LIKE a starred or applied job — handles cross-source
-  // title variants (e.g. "Senior PD" vs "Senior PD - parental leave cover" at the same company).
-  const protectedJobs = await prisma.job.findMany({
-    where: {
-      userId,
-      status: { in: ["STARRED", "APPLIED", "INTERVIEWING", "OFFER", "ARCHIVED"] },
-    },
+  // 3b. Drop any fresh candidate that fuzzily matches a job ALREADY in the user's
+  // board — across ALL statuses, including other NEW rows from a previous refresh
+  // and DELETED ("don't show again") rows. The exact-hash + (source, externalId)
+  // repeat check above only catches same-source / identical-text matches; this
+  // catches cross-source title/location variants (e.g. the same role surfaced by
+  // JSearch as "Berlin" and by Adzuna as "Remote"), which is the main cause of
+  // duplicate cards accumulating on the board across refreshes.
+  const existingRows = await prisma.job.findMany({
+    where: { userId },
     select: { title: true, company: true, location: true },
   });
-  if (protectedJobs.length > 0) {
-    fresh = fresh.filter(
-      (cand) => !protectedJobs.some((p) => isLikelySameJob(cand, p)),
-    );
+  if (existingRows.length > 0) {
+    // Block by normalized company so each candidate only compares within its
+    // employer's bucket (O(n·k) not O(n²)).
+    const byCompany = new Map<string, typeof existingRows>();
+    for (const row of existingRows) {
+      const key = companyBlockKey(row.company);
+      const bucket = byCompany.get(key);
+      if (bucket) bucket.push(row);
+      else byCompany.set(key, [row]);
+    }
+    fresh = fresh.filter((cand) => {
+      const bucket = byCompany.get(companyBlockKey(cand.company));
+      return !bucket || !bucket.some((p) => isLikelySameJob(cand, p));
+    });
   }
 
   // 3c. Personalize: drop jobs that contradict the user's seniority/jobType
@@ -181,7 +204,10 @@ async function runRefresh() {
   // is already in lexical-relevance order (derived by filtering the pre-ranked
   // `considered`), so this keeps the strongest matches and bounds AI token spend
   // + latency regardless of how many jobs were fetched.
-  if (fresh.length > TOKEN.MAX_SCORE_CANDIDATES) {
+  // Track overflow so the response can flag that fresh jobs were left unscored
+  // by the candidate cap (the user should run again to pick them up).
+  const cappedOverflow = Math.max(0, fresh.length - TOKEN.MAX_SCORE_CANDIDATES);
+  if (cappedOverflow > 0) {
     fresh = fresh.slice(0, TOKEN.MAX_SCORE_CANDIDATES);
   }
 
@@ -200,6 +226,7 @@ async function runRefresh() {
       scanned,
       reports,
       newJobIds: [],
+      pendingMore: false,
       tokens: {
         balance: tokens.balance,
         charged: tokens.charged,
@@ -237,11 +264,14 @@ async function runRefresh() {
   const droppedUnscored = fresh.length - scoredFresh.length;
 
   // Cost: 0.5 per surfaced job (scored-fresh + repeats) + 1 per freshly-rated
-  // job. Unscored fresh jobs are not surfaced and not billed.
+  // job. Unscored fresh jobs are not surfaced and not billed. On a continuation
+  // pass the repeats were already billed for re-display on the first pass of the
+  // same Research action, so we bill only the newly-rated jobs — keeping an
+  // N-pass auto-continue's total cost equal to a single complete run.
   const ratedCount = scoredFresh.length;
+  const billedDisplay = continuation ? ratedCount : ratedCount + repeatsCount;
   const cost =
-    TOKEN.PER_JOB_DISPLAY * (ratedCount + repeatsCount) +
-    TOKEN.PER_JOB_RATING * ratedCount;
+    TOKEN.PER_JOB_DISPLAY * billedDisplay + TOKEN.PER_JOB_RATING * ratedCount;
 
   // 6. Persist (only scored rows). The score lookup is guaranteed by the
   // filter above, so the `!` non-null assertion is safe.
@@ -304,11 +334,19 @@ async function runRefresh() {
     ...(droppedUnscored > 0 ? { droppedUnscored } : {}),
   });
 
+  // True when the scoring deadline (or a transient batch error) left jobs in
+  // THIS run's candidate set unscored — the client auto-continues to finish
+  // them. NOTE: the `cappedOverflow` (jobs beyond MAX_SCORE_CANDIDATES) is
+  // intended truncation, not incompleteness, so it must NOT trigger a
+  // continuation — that would expand coverage and cost beyond the design.
+  const pendingMore = droppedUnscored > 0;
+
   return NextResponse.json({
     added: result.count,
     scanned,
     reports,
     newJobIds,
+    pendingMore,
     tokens: {
       balance: tokens.balance,
       charged: tokens.charged,
