@@ -532,3 +532,16 @@ The same logic applies to `jobType`. For `source`, no UNKNOWN passes because eve
 **Decision.** Freshly discovered jobs get a blue *New* badge on the board. `/api/jobs/refresh` returns **`newJobIds`** — the IDs of the rows it just inserted, resolved after `createMany` by a lookup on the run's dedupe hashes + `status: NEW` (which is exactly the new rows, since repeats were filtered by hash earlier in the run). The client stores that set in `localStorage` (`mw:newJobIds`, hydrated after mount to avoid a hydration mismatch) and **replaces** it on every Research run, so older flags clear and only the latest finds light up; an empty run clears all flags.
 
 **Why not a `fetchedAt > lastSeen` timestamp.** A time-based rule has to compare a client-captured boundary against a server-set `fetchedAt`, which is fragile under clock skew and on repeats-only runs. `createMany` with `skipDuplicates` doesn't return IDs, so the route does an explicit follow-up `findMany` — cheap, and fully deterministic. The badge is intentionally **persistent** (survives reloads/tab switches) and only resets on the next Research, matching "show me what's new since I last researched."
+
+## 49. Clear List acts on the whole tab + opt-in permanent delete
+
+**Decision.** Clear List (DECISIONS #47) gained two capabilities, both in the one confirmation dialog:
+
+1. **Whole-tab scope.** It now clears *every* job in the tab, not just the loaded page. The inbox listing is capped at `TOKEN.MAX_BOARD_JOBS` (70), so previously a user with more jobs had to clear repeatedly. On dialog-open the board fetches the full filtered ID set via `GET /api/jobs?…&idsOnly=1` (same `where`/filters, `select: { id: true }`, **no `take`**), and the dialog reports the true total ("Clear all N jobs in this tab?").
+2. **Opt-in permanent delete.** A **"Permanently delete jobs"** checkbox (default off) switches the action from the soft clear to a hard delete: the full ID set is sent to `POST /api/jobs/bulk { action: "purge" }` (chunked 500/call to respect the endpoint cap), which runs `prisma.job.deleteMany` scoped to the caller. Unchecked behavior is unchanged (soft `localStorage` clear).
+
+**Why the soft clear stays the default.** The reversible "hide until next Research" gesture is the common case and the safe one. Permanent delete is destructive, so it's an explicit opt-in with helper text and a destructive-styled confirm button.
+
+**Consequence — a purged job can reappear.** `purge` removes the row entirely, unlike the soft `DELETED` status (which the refresh treats as a known repeat and keeps excluded forever, see `jobs/refresh/route.ts`). With no row left to match on `dedupeHash` / `(source, externalId)`, a still-live listing is seen as *fresh* on a later Research — re-scored, re-billed, re-shown. This was a deliberate, user-confirmed choice: "permanent" means "erased from your DB now", not "suppressed forever" (that's what the soft clear / *Don't Show Again* `DELETED` path is for).
+
+**Filter-consistency.** Both paths reuse the board's active filters via the shared `buildJobsParams()` helper, so Clear List sweeps exactly the set the user is currently viewing across all batches — not the unfiltered tab.
