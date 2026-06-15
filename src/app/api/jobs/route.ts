@@ -45,12 +45,27 @@ export async function GET(request: Request) {
 
   const tab = searchParams.get("tab") ?? "inbox";
 
+  // idsOnly returns just the matching row IDs (no field payload, no listing cap)
+  // so "Clear List" can act on the whole tab at once, not just the loaded batch.
+  const idsOnly = searchParams.get("idsOnly") === "1";
+
   // Pipeline is a cross-status management view (Applied → Interviewing → Offer →
   // Archived). It ignores the board's narrowing filters and score threshold so
   // every tracked application shows up regardless of how it scored.
   if (tab === "pipeline") {
+    const pipelineWhere: Prisma.JobWhereInput = {
+      userId,
+      status: { in: PIPELINE_STATUSES },
+    };
+    if (idsOnly) {
+      const rows = await prisma.job.findMany({
+        where: pipelineWhere,
+        select: { id: true },
+      });
+      return NextResponse.json({ ids: rows.map((r) => r.id) });
+    }
     const jobs = await prisma.job.findMany({
-      where: { userId, status: { in: PIPELINE_STATUSES } },
+      where: pipelineWhere,
       orderBy: [{ appliedAt: "desc" }, { fetchedAt: "desc" }],
     });
     return NextResponse.json({ jobs });
@@ -136,6 +151,13 @@ export async function GET(request: Request) {
         ],
       },
     ];
+  }
+
+  // Clear List acts on the entire filtered tab, including jobs past the inbox
+  // listing cap below, so the ID sweep ignores `take`.
+  if (idsOnly) {
+    const rows = await prisma.job.findMany({ where, select: { id: true } });
+    return NextResponse.json({ ids: rows.map((r) => r.id) });
   }
 
   const orderBy: Prisma.JobOrderByWithRelationInput[] =

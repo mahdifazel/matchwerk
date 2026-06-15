@@ -42,6 +42,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   ALL_JOB_TYPES,
@@ -165,6 +166,11 @@ export function JobBoard() {
   const [showFilters, setShowFilters] = useState(false);
   const [heroTitle, setHeroTitle] = useState<string | null>(null);
   const [clearOpen, setClearOpen] = useState(false);
+  const [clearPermanent, setClearPermanent] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  // Full set of job IDs in the current tab (all batches, not just the loaded
+  // page) so one Clear List action sweeps the whole tab. null = still loading.
+  const [clearTargets, setClearTargets] = useState<string[] | null>(null);
   // Free-text search over the Pipeline table (Pipeline tab only).
   const [pipelineSearch, setPipelineSearch] = useState("");
   // IDs flagged "New" from the last Research. Hydrated from localStorage after
@@ -185,19 +191,23 @@ export function JobBoard() {
   }, []);
   const { balance } = useTokenBalance();
 
+  const buildJobsParams = useCallback(() => {
+    return new URLSearchParams({
+      tab,
+      locations: filters.locations.join(","),
+      seniority: filters.seniority.join(","),
+      jobTypes: filters.jobTypes.join(","),
+      sources: filters.sources.join(","),
+      languages: filters.languages.join(","),
+      datePosted: filters.datePosted,
+      minScore: String(filters.minScore),
+    });
+  }, [tab, filters]);
+
   const fetchJobs = useCallback(
     async (signal?: AbortSignal) => {
       setLoading(true);
-      const params = new URLSearchParams({
-        tab,
-        locations: filters.locations.join(","),
-        seniority: filters.seniority.join(","),
-        jobTypes: filters.jobTypes.join(","),
-        sources: filters.sources.join(","),
-        languages: filters.languages.join(","),
-        datePosted: filters.datePosted,
-        minScore: String(filters.minScore),
-      });
+      const params = buildJobsParams();
       try {
         const res = await fetch(`/api/jobs?${params.toString()}`, { signal });
         if (signal?.aborted) return;
@@ -220,7 +230,7 @@ export function JobBoard() {
         if (!signal?.aborted) setLoading(false);
       }
     },
-    [tab, filters, getClearedIds],
+    [buildJobsParams, tab, getClearedIds],
   );
 
   // Cancel any in-flight fetch when filters/tab change so an older, slower
@@ -382,33 +392,79 @@ export function JobBoard() {
     [],
   );
 
-  const handleClearList = useCallback(() => {
+  const handleClearList = useCallback(async () => {
     if (jobs.length === 0) return;
-    // Same soft-clear behavior on every tab: ask first, then hide the visible
-    // rows (they stay in the DB and return on the next Research). The actual
-    // clear runs in handleConfirmClear.
+    // Default to the soft clear; the dialog offers an opt-in permanent delete.
+    setClearPermanent(false);
+    setClearTargets(null);
     setClearOpen(true);
-  }, [jobs]);
+    // Resolve every job ID in this tab (all batches, past the listing cap) so
+    // the action clears the whole tab in one go, not just the loaded page.
+    try {
+      const params = buildJobsParams();
+      params.set("idsOnly", "1");
+      const res = await fetch(`/api/jobs?${params.toString()}`);
+      const data = await res.json();
+      setClearTargets(
+        Array.isArray(data.ids) ? (data.ids as string[]) : jobs.map((j) => j.id),
+      );
+    } catch {
+      // Fall back to the loaded page so Clear List still works offline-ish.
+      setClearTargets(jobs.map((j) => j.id));
+    }
+  }, [jobs, buildJobsParams]);
 
-  const handleConfirmClear = useCallback(() => {
-    if (jobs.length === 0) {
+  const handleConfirmClear = useCallback(async () => {
+    const targets = clearTargets ?? jobs.map((j) => j.id);
+    if (targets.length === 0) {
       setClearOpen(false);
       return;
     }
-    // Soft clear only. The rows stay in the DB; we just remember the visible
+    const count = targets.length;
+
+    if (clearPermanent) {
+      // Hard delete: remove the rows from the database for good. This cannot be
+      // undone. Chunked to stay within the bulk endpoint's per-call cap.
+      setClearing(true);
+      try {
+        for (let i = 0; i < targets.length; i += 500) {
+          const chunk = targets.slice(i, i + 500);
+          const res = await fetch("/api/jobs/bulk", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "purge", ids: chunk }),
+          });
+          if (!res.ok) {
+            toast.error("Could not delete jobs.");
+            return;
+          }
+        }
+        setJobs([]);
+        setClearOpen(false);
+        toast.success(
+          `Permanently deleted ${count} job${count === 1 ? "" : "s"}.`,
+        );
+      } catch {
+        toast.error("Could not delete jobs.");
+      } finally {
+        setClearing(false);
+      }
+      return;
+    }
+
+    // Soft clear only. The rows stay in the DB; we just remember the cleared
     // IDs and filter them out of subsequent fetches in this session so a tab
     // switch doesn't bring them back. handleRefresh resets the ref so a
     // Research click surfaces them again.
-    const cleared = jobs.length;
     const clearedIds = getClearedIds();
-    for (const j of jobs) clearedIds.add(j.id);
+    for (const id of targets) clearedIds.add(id);
     writeClearedIds(clearedIds);
     setJobs([]);
     setClearOpen(false);
     toast.success(
-      `Cleared ${cleared} job${cleared === 1 ? "" : "s"} from view. They'll come back on the next Research.`,
+      `Cleared ${count} job${count === 1 ? "" : "s"} from view. They'll come back on the next Research.`,
     );
-  }, [jobs, getClearedIds]);
+  }, [clearTargets, jobs, clearPermanent, getClearedIds]);
 
   // Inline note auto-save from the Pipeline table. Returns success so the cell
   // knows whether to keep the value as "saved".
@@ -744,25 +800,62 @@ export function JobBoard() {
         </div>
 
         <AlertDialog open={clearOpen} onOpenChange={setClearOpen}>
-          <AlertDialogContent>
+          <AlertDialogContent className="data-[size=default]:max-w-sm data-[size=default]:sm:max-w-lg">
             <AlertDialogHeader>
               <AlertDialogTitle>
-                Clear {jobs.length} job{jobs.length === 1 ? "" : "s"} from view?
+                {clearTargets === null
+                  ? "Clear this tab?"
+                  : `Clear all ${clearTargets.length} job${clearTargets.length === 1 ? "" : "s"} in this tab?`}
               </AlertDialogTitle>
               <AlertDialogDescription>
-                These jobs stay in your database, they&apos;re just hidden from
-                this view and will come back on the next Research.
+                This clears every job in this tab, not just the ones shown. By
+                default they&apos;re removed from this list only and stay in your
+                database, so they can show up again on a future Research. To
+                remove them for good, use the option below.
               </AlertDialogDescription>
             </AlertDialogHeader>
+            <div className="rounded-xl border border-border/70 bg-muted/30 p-3">
+              <label
+                htmlFor="clear-permanent"
+                className="flex items-start gap-3 cursor-pointer"
+              >
+                <Checkbox
+                  id="clear-permanent"
+                  checked={clearPermanent}
+                  onCheckedChange={(checked) => setClearPermanent(checked === true)}
+                  className="mt-0.5"
+                />
+                <span className="text-sm">
+                  <span className="font-medium">Permanently delete jobs</span>
+                  <span className="mt-1 block text-xs text-muted-foreground">
+                    Instead of just hiding them, this removes these jobs from your
+                    list and permanently deletes them from your database. You
+                    can&apos;t undo this.
+                  </span>
+                </span>
+              </label>
+            </div>
             <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogCancel disabled={clearing}>Cancel</AlertDialogCancel>
               <AlertDialogAction
+                disabled={clearing || clearTargets === null}
+                className={
+                  clearPermanent
+                    ? "bg-destructive text-white hover:bg-destructive/90"
+                    : undefined
+                }
                 onClick={(e) => {
                   e.preventDefault();
                   handleConfirmClear();
                 }}
               >
-                Clear
+                {clearing
+                  ? "Working..."
+                  : clearTargets === null
+                    ? "Loading..."
+                    : clearPermanent
+                      ? "Delete permanently"
+                      : "Clear list"}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

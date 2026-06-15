@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { getSessionUserId } from "@/lib/repo";
 
 const bulkSchema = z.object({
-  action: z.enum(["delete", "unapply"]),
+  action: z.enum(["delete", "unapply", "purge"]),
   ids: z.array(z.string()).min(1).max(500),
 });
 
@@ -29,6 +29,16 @@ export async function POST(request: Request) {
     const result = await prisma.job.updateMany({
       where: { userId, id: { in: parsed.data.ids }, status: "APPLIED" },
       data: { status: "NEW", appliedAt: null },
+    });
+    return NextResponse.json({ count: result.count });
+  }
+
+  if (parsed.data.action === "purge") {
+    // "purge" — hard-deletes the rows from the database. Unlike "delete" (which
+    // sets DELETED so the job stays hidden but recoverable), this is permanent
+    // and cannot be undone. Scoped to the caller's rows.
+    const result = await prisma.job.deleteMany({
+      where: { userId, id: { in: parsed.data.ids } },
     });
     return NextResponse.json({ count: result.count });
   }
