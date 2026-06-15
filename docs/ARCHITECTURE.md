@@ -347,6 +347,10 @@ The "only narrows if subset" rule is critical for fresh jobs whose seniority/typ
 
 **Board UI semantics for Clear List:** a non-destructive, view-only soft clear (no DB write) with the same confirmation dialog on every status tab — the visible IDs go into a `localStorage` set (`mw:clearedJobIds`) and are filtered out of fetches until the next Research. The Pipeline tab ignores the cleared set (always shows the full tracker). Superseded DECISIONS #30.
 
+**Board UI semantics for the "New" badge:** `/api/jobs/refresh` returns `newJobIds` (the rows it just inserted); the client stores them in `localStorage` (`mw:newJobIds`) and renders a blue *New* badge on those cards, replacing the set each Research run. See DECISIONS #48.
+
+**Pipeline search:** the Pipeline toolbar swaps the listing count for a client-side search box (company / role / location / note / status); the count beside it shows matches when searching, total otherwise. The tab nav is sticky below the header, collapses to a horizontally-scrollable strip on mobile, and the board carries a back-to-top button.
+
 ### 3.5 Contact form & admin inbox
 
 ```
