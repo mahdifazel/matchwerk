@@ -179,10 +179,12 @@ async function scoreBatch(
  *  - Anthropic's "concurrent connections" rate limit (firing all ~15 batches
  *    at once tripped it: HTTP 429 rate_limit_error on the over-spill).
  *  - Vercel's 60s function cap (the previous fully-sequential loop blew it).
- * 4 in flight finishes a 150-job refresh in ~4 waves × ~7s ≈ 28s, well inside
- * the cap and below most provider tiers' connection ceilings.
+ * 6 in flight scores the 80-candidate ceiling in ~2 waves, finishing faster and
+ * absorbing cold-start cost so a single refresh scores the full set within the
+ * budget; still comfortably below most provider tiers' connection ceilings
+ * (firing all ~15 at once tripped Anthropic's 429).
  */
-const SCORING_CONCURRENCY = 4;
+const SCORING_CONCURRENCY = 6;
 
 /**
  * Score every job against the CV profile and the user's settings preferences.

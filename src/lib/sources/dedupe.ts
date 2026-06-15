@@ -1,35 +1,23 @@
 import { createHash } from "crypto";
+import { normCity, normCompany, normTitle } from "./normalize";
 import { sourcePriority } from "./priority";
 import { companyCityBlockKey, isLikelySameJob } from "./similarity";
 import type { RawJob } from "./types";
 
-/** Normalize a string for fuzzy matching: lowercase, drop gender markers, strip punctuation. */
-function norm(s: string): string {
-  return (
-    s
-      .toLowerCase()
-      .normalize("NFKD")
-      // Drop parenthesized gender/diversity markers: (m/w/d), (all genders), (gn)...
-      .replace(/\((?:\s*(?:all genders?|gn|[dwmfx])\s*[/|]?\s*)+\)/gi, " ")
-      // Drop bare slash-delimited gender markers: m/w/d, w/m/x...
-      .replace(/\b[mwfdx](?:\s*\/\s*[mwfdx]){1,3}\b/gi, " ")
-      .replace(/[^a-z0-9 ]/g, " ")
-      .replace(/\s+/g, " ")
-      .trim()
-  );
-}
-
 /**
  * Stable hash identifying "the same job" across platforms — built from
- * title + company + the city portion of the location.
+ * normalized title + company + city. Uses the SAME normalizers as the fuzzy
+ * matcher (`./normalize`): legal-suffix stripping, umlaut folding, postal-code /
+ * country stripping, and German↔English city aliases all collapse here too, so
+ * many cross-source variants now exact-match in Pass 1 instead of relying on the
+ * fuzzy pass.
  */
 export function dedupeHash(job: {
   title: string;
   company: string;
   location: string;
 }): string {
-  const city = norm(job.location.split(",")[0] ?? job.location);
-  const key = `${norm(job.title)}|${norm(job.company)}|${city}`;
+  const key = `${normTitle(job.title)}|${normCompany(job.company)}|${normCity(job.location)}`;
   return createHash("sha1").update(key).digest("hex");
 }
 
