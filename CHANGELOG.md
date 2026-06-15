@@ -7,6 +7,14 @@ All notable changes to this project are documented here. Format follows [Keep a 
 Multi-tenancy with Auth.js, an in-app token economy, **Stripe payments**, a
 **multi-provider AI layer (Claude + Gemini + Groq)**, and a full **admin backoffice**.
 
+### Added — board UX: pipeline search, "New" badges, sticky tabs, mobile polish
+
+- **Pipeline search.** The Pipeline toolbar replaces the "N listings" count with a search box (case-insensitive over company, role, location, note, status). The count moves beside it and shows **matches when searching, total otherwise**; a custom clear (✕) button replaces the browser's native `type="search"` X, and a no-match state renders a "No matching jobs" empty state.
+- **"New" badge.** `/api/jobs/refresh` now returns `newJobIds`; the board flags freshly discovered jobs with a blue *New* badge (distinct from the emerald *Offer* badge). Persisted in `localStorage` (`mw:newJobIds`) so it survives reloads/tab switches, and **replaced each Research run** so only the latest finds are flagged.
+- **Sticky tab nav.** The tab row pins directly below the app header on scroll (frosted band, full content width); the toolbar, filters, and listings scroll underneath.
+- **Back to top.** A floating button appears after scrolling down and smooth-scrolls to the top (respects `prefers-reduced-motion`).
+- **Responsive board.** Mobile tabs become one horizontally-scrollable strip (Pipeline folded in; pinned right on desktop), the hero CTA goes full-width and the stats strip wraps, and job-card actions stack — all using existing design-system tokens.
+
 ### Added — application pipeline, sub-stages & Pipeline table view
 
 - **Six-stage pipeline.** The board gained **Interviewing / Offer / Archived** tabs alongside Inbox / Starred / Applied (`JobStatus` enum + migrations). Stage moves happen via the star icon (→ Starred), an outlined **"Update Status"** dropdown, and **"Back to Inbox"**; `PATCH /api/jobs/[id]` now takes `star/apply/interview/offer/archive/inbox/delete`.

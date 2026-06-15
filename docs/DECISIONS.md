@@ -526,3 +526,9 @@ The same logic applies to `jobType`. For `source`, no UNKNOWN passes because eve
 **Why.** The split behavior (view-only on Inbox/Starred, destructive-ish bulk-unapply on Applied) surprised users: the same button did two very different things, and on the new Interviewing/Offer/Archived tabs the old code fell through to a soft clear with no confirmation. One predictable gesture — "hide these from view until I research again" — is easier to reason about and reversible everywhere (Research brings them back). The per-card *"Don't Show Again"* still covers permanent hiding; `Update Status` covers stage changes.
 
 **Note.** `POST /api/jobs/bulk { action: "unapply" }` is left in place (still a valid endpoint) but is no longer called by the UI.
+
+## 48. "New" badge tracked by returned IDs, not a timestamp
+
+**Decision.** Freshly discovered jobs get a blue *New* badge on the board. `/api/jobs/refresh` returns **`newJobIds`** — the IDs of the rows it just inserted, resolved after `createMany` by a lookup on the run's dedupe hashes + `status: NEW` (which is exactly the new rows, since repeats were filtered by hash earlier in the run). The client stores that set in `localStorage` (`mw:newJobIds`, hydrated after mount to avoid a hydration mismatch) and **replaces** it on every Research run, so older flags clear and only the latest finds light up; an empty run clears all flags.
+
+**Why not a `fetchedAt > lastSeen` timestamp.** A time-based rule has to compare a client-captured boundary against a server-set `fetchedAt`, which is fragile under clock skew and on repeats-only runs. `createMany` with `skipDuplicates` doesn't return IDs, so the route does an explicit follow-up `findMany` — cheap, and fully deterministic. The badge is intentionally **persistent** (survives reloads/tab switches) and only resets on the next Research, matching "show me what's new since I last researched."
