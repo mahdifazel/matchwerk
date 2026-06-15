@@ -25,27 +25,46 @@ import { isLikelySameJob } from "@/lib/sources/similarity";
 // success well under the cap regardless of plan.
 export const maxDuration = 300;
 
-// Wall-clock budget for the whole run, kept safely under the smallest plan cap
-// (Hobby = 60s) so the request never hits FUNCTION_INVOCATION_TIMEOUT. Scoring
-// stops launching new batches once this elapses; only scored jobs are persisted
-// and billed, so the remainder is re-fetched cheaply on the next refresh.
-// Override with REFRESH_BUDGET_MS (e.g. on Pro where the cap is higher). 45s
-// leaves headroom under a 60s cap for the final in-flight wave + persist/charge.
+// Per-pass scoring ceiling, kept safely under the smallest plan cap (Hobby =
+// 60s) so the request never hits FUNCTION_INVOCATION_TIMEOUT. Scoring stops
+// launching new batches once the pass deadline elapses; only scored jobs are
+// persisted and billed, so the remainder is re-fetched on the next pass.
+// Override with REFRESH_BUDGET_MS (e.g. 240000 on Pro/Fluid where the cap is
+// higher). 45s leaves headroom under a 60s cap for the final wave + persist.
 const SCORING_BUDGET_MS = Number(process.env.REFRESH_BUDGET_MS) || 45_000;
+
+// A pass always gets at least this much scoring time, even if the client's
+// remaining overall budget is small — otherwise a near-expired research budget
+// would launch a pass that scores nothing.
+const MIN_PASS_BUDGET_MS = 8_000;
 
 export async function POST(request: Request) {
   try {
-    // Optional body: { continuation?: boolean }. A continuation pass is the
-    // client auto-continuing the same Research action after a deadline-trimmed
-    // run, so it must not re-bill the re-display of repeats already charged.
+    // Optional body: { continuation?: boolean; budgetMs?: number }.
+    //  - continuation: the client auto-continuing the same Research action;
+    //    must not re-bill the re-display of repeats already charged.
+    //  - budgetMs: how long THIS pass may score, derived by the client from the
+    //    remaining 2.5-min overall research budget. We clamp it to
+    //    [MIN_PASS_BUDGET_MS, SCORING_BUDGET_MS] so a pass never exceeds the
+    //    function cap yet the whole research stays inside the overall ceiling.
     let continuation = false;
+    let requestedBudgetMs = SCORING_BUDGET_MS;
     try {
-      const body = (await request.json()) as { continuation?: boolean } | null;
+      const body = (await request.json()) as
+        | { continuation?: boolean; budgetMs?: number }
+        | null;
       continuation = body?.continuation === true;
+      if (typeof body?.budgetMs === "number" && Number.isFinite(body.budgetMs)) {
+        requestedBudgetMs = body.budgetMs;
+      }
     } catch {
-      // No/!JSON body — a normal first pass.
+      // No/!JSON body — a normal first pass with the default budget.
     }
-    return await runRefresh(continuation);
+    const passBudgetMs = Math.min(
+      SCORING_BUDGET_MS,
+      Math.max(MIN_PASS_BUDGET_MS, requestedBudgetMs),
+    );
+    return await runRefresh(continuation, passBudgetMs);
   } catch (err) {
     const message =
       err instanceof Error ? err.message : "Refresh failed unexpectedly.";
@@ -53,8 +72,8 @@ export async function POST(request: Request) {
   }
 }
 
-async function runRefresh(continuation: boolean) {
-  const deadline = Date.now() + SCORING_BUDGET_MS;
+async function runRefresh(continuation: boolean, passBudgetMs: number) {
+  const deadline = Date.now() + passBudgetMs;
   const userId = await getSessionUserId();
   if (!userId) {
     return NextResponse.json({ error: "Sign in to continue." }, { status: 401 });
