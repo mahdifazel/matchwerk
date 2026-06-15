@@ -130,9 +130,9 @@ function prefMatch(job: PrerankJob, prefs: PrerankPrefs): number {
 }
 
 const WEIGHTS = {
-  title: 0.45,
+  title: 0.4,
   overlap: 0.3,
-  recency: 0.1,
+  recency: 0.15,
   pref: 0.1,
   source: 0.05,
 } as const;

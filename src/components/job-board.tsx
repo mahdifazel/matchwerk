@@ -82,7 +82,9 @@ const ALL_FILTERS: Filters = {
 const REFRESH_ETA_KEY = "mw:lastRefreshMs:v2";
 const REFRESH_ETA_DEFAULT = 90_000;
 const REFRESH_ETA_MIN = 20_000;
-const REFRESH_ETA_MAX = 240_000;
+// Research is hard-capped at RESEARCH_BUDGET_MS (2.5 min), so the estimate can
+// never legitimately exceed that.
+const REFRESH_ETA_MAX = 150_000;
 
 function readRefreshEta(): number {
   if (typeof window === "undefined") return REFRESH_ETA_DEFAULT;
@@ -122,6 +124,16 @@ const NEW_IDS_KEY = "mw:newJobIds";
 // (the server bills each pass under the function timeout). This caps the loop so
 // a server that never reports completion can't spin forever.
 const MAX_REFRESH_PASSES = 6;
+
+// Hard ceiling on the WHOLE research action (sum of all auto-continue passes).
+// Each pass is told how much of this budget remains so the server scores only
+// that long; when it runs out we stop and rely on source-priority + pre-rank
+// ordering having scored the best/highest-priority jobs first.
+const RESEARCH_BUDGET_MS = 150_000; // 2.5 minutes
+// Reserve per pass for fetch + persist + network overhead (scoring is the rest).
+const PASS_TAIL_RESERVE_MS = 10_000;
+// Don't start a pass with less than this much budget left — not worth a round-trip.
+const MIN_PASS_BUDGET_MS = 12_000;
 
 function readNewIds(): Set<string> {
   if (typeof window === "undefined") return new Set();
@@ -315,10 +327,14 @@ export function JobBoard() {
     setRefreshing(true);
     const t0 = performance.now();
     try {
-      // Auto-continue: the server scores as much of the candidate set as fits
-      // under its function timeout, then reports `pendingMore`. We keep calling
+      // Auto-continue under a hard 2.5-min ceiling. Each pass is told how much
+      // of the overall budget remains; the server scores only that long (clamped
+      // to its function-cap budget), then reports `pendingMore`. We keep calling
       // (continuation passes don't re-bill repeats) until it's fully scored, the
-      // pass ceiling is hit, or a pass makes no progress.
+      // overall budget runs out, the pass ceiling is hit, or a pass makes no
+      // progress. Source-priority + pre-rank ordering means a budget-trimmed run
+      // still scored the best/highest-priority jobs first.
+      const researchDeadline = performance.now() + RESEARCH_BUDGET_MS;
       let totalAdded = 0;
       let totalSpent = 0;
       let lastScanned = 0;
@@ -327,10 +343,20 @@ export function JobBoard() {
       let incomplete = false;
 
       for (; pass < MAX_REFRESH_PASSES; pass++) {
+        const remaining = researchDeadline - performance.now();
+        // Out of overall budget — stop (don't start a pass we can't afford).
+        if (pass > 0 && remaining < MIN_PASS_BUDGET_MS) {
+          incomplete = true;
+          break;
+        }
+        const budgetMs = Math.max(
+          MIN_PASS_BUDGET_MS,
+          Math.round(remaining - PASS_TAIL_RESERVE_MS),
+        );
         const res = await fetch("/api/jobs/refresh", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ continuation: pass > 0 }),
+          body: JSON.stringify({ continuation: pass > 0, budgetMs }),
         });
         const data = await res.json();
         if (!res.ok) {
