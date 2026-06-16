@@ -69,8 +69,12 @@ function reconcileFallback(stored?: AiProviderId[]): AiProviderId[] {
   return base;
 }
 
-export async function getAiConfig(): Promise<AiConfig> {
-  const cfg = await getAppSetting<Partial<AiConfig>>(SETTING_KEY, DEFAULT_CONFIG);
+export async function getAiConfig(opts?: { fresh?: boolean }): Promise<AiConfig> {
+  const cfg = await getAppSetting<Partial<AiConfig>>(
+    SETTING_KEY,
+    DEFAULT_CONFIG,
+    opts,
+  );
   return {
     active: cfg.active ?? DEFAULT_CONFIG.active,
     fallback: reconcileFallback(cfg.fallback),
@@ -173,8 +177,8 @@ export async function hasAnyAiProvider(): Promise<boolean> {
 }
 
 /** Per-provider status for the admin UI. */
-export async function getProviderStatuses() {
-  const cfg = await getAiConfig();
+export async function getProviderStatuses(opts?: { fresh?: boolean }) {
+  const cfg = await getAiConfig(opts);
   return Promise.all(
     AI_PROVIDER_ORDER.map(async (id) => ({
       id,
