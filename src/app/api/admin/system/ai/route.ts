@@ -8,9 +8,12 @@ export async function GET() {
   const admin = await getAdminUser();
   if (!admin) return NextResponse.json({ error: "Admins only." }, { status: 403 });
 
+  // Read fresh (bypass the per-process TTL cache) so the dashboard always shows
+  // the authoritative persisted config — never a stale snapshot from whichever
+  // serverless instance happened to serve this request.
   const [statuses, config] = await Promise.all([
-    getProviderStatuses(),
-    getAiConfig(),
+    getProviderStatuses({ fresh: true }),
+    getAiConfig({ fresh: true }),
   ]);
   const providers = await Promise.all(
     statuses.map(async (s) => ({ ...s, key: await getCredentialState(s.keyName) })),
