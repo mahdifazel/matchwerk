@@ -34,7 +34,7 @@ A walk through how Matchwerk is put together: the system shape, the directory la
 │   src/lib/matcher.ts         — batched Haiku scoring                   │
 │   src/lib/tokens.ts          — charge / grant / lazy signup grant      │
 │   src/lib/sources/dedupe.ts  — cross-source hash collapse              │
-│   src/lib/sources/similarity.ts — protect starred/applied jobs         │
+│   src/lib/sources/similarity.ts — fuzzy dedupe vs all existing rows    │
 │                                                                        │
 ├──────────────────────────────────────────────────────────────────────┤
 │                                                                        │
@@ -46,7 +46,9 @@ A walk through how Matchwerk is put together: the system shape, the directory la
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-Multi-tenant: every row carries a `userId` and every query is scoped to the signed-in user (page routes via `src/proxy.ts`, API routes via `getSessionUserId()`). No queue, no worker. Refresh is a single HTTP request that runs the whole pipeline inline (sources → dedupe → score → persist → charge). That keeps the moving parts low; a long refresh holds the request open for ~10–60 s in the dev environment.
+Multi-tenant: every row carries a `userId` and every query is scoped to the signed-in user (page routes via `src/proxy.ts`, API routes via `getSessionUserId()`). No queue, no worker. Each refresh *pass* is a single HTTP request that runs the whole pipeline inline (sources → dedupe → score → persist → charge). That keeps the moving parts low.
+
+> **Updated.** One Research click is now an **auto-continue loop** in the board: it issues repeated `/api/jobs/refresh` passes (each bounded by `REFRESH_BUDGET_MS` under the function cap) until the candidate set is fully scored or an overall **2.5-minute ceiling** (`RESEARCH_BUDGET_MS`) is hit — so the whole action stays bounded regardless of host, and priority/pre-rank ordering means a trimmed run scored the best jobs first. See `CLAUDE.md` §4 and DECISIONS #50–#51.
 
 ---
 
@@ -232,7 +234,8 @@ findMany({ dedupeHash IN … OR (source, externalId) IN … })
                         the (source,externalId) match survives aggregator text drift
    │
    ▼
-isLikelySameJob() vs starred+applied   ── drop cross-source title variants
+isLikelySameJob() vs ALL existing rows ── drop cross-source title/location
+  (any tab, blocked by company)            variants; Remote≈any city
    │
    ▼
 preference filter    ── drop jobs that contradict Settings.defaultSeniority
@@ -596,7 +599,7 @@ The design system lives entirely in `src/app/globals.css` under `@theme inline` 
 - **Role-agnostic scoring.** The system prompt derives the candidate's profession from `Settings.jobTitles[0]` and the CV — no hardcoded profession — so a new CV genuinely retargets matching.
 - **Tier-driven orchestrator.** Adding a source = adding an enum value + an adapter; the orchestrator picks it up automatically.
 - **DB-backed credentials with env fallback.** `getSourceCredentials(sourceId)` resolves DB → env. Saved keys take effect on the next refresh; clearing the DB row falls back to env.
-- **Dedupe at three levels.** Hash-based collapse in memory, `dedupeHash @unique` in the DB, similarity-based protection of starred/applied rows.
+- **Dedupe at three levels.** Hash-based collapse in memory (shared normalizer, `src/lib/sources/normalize.ts`), `dedupeHash @unique` in the DB, and a fuzzy `isLikelySameJob` filter vs all existing rows in any tab (blocked by company; Remote≈any city).
 - **Prisma 7 with `@prisma/adapter-pg`.** Required to run inside Next.js server components — the default Prisma client doesn't work cleanly in the App Router runtime.
 - **`serverExternalPackages`** in `next.config.ts` for `pg`, `@prisma/adapter-pg`, `mammoth`, `unpdf` — bundling them through Turbopack/webpack breaks them.
 
@@ -611,7 +614,7 @@ The design system lives entirely in `src/app/globals.css` under `@theme inline` 
 | Source API hangs | `fetchWithTimeout` (12s `AbortSignal.timeout`) in `src/lib/sources/http.ts` | The request aborts; the adapter's `.catch()` records `{ count: 0 }` so a slow upstream can't stall the whole refresh. |
 | Invalid PUT body | Zod `safeParse` | Returns 400 `{ error, issues }`. |
 | Duplicate job insert race | `dedupeHash @unique` + `skipDuplicates: true` | Silently dropped. |
-| Cross-source title variants | `isLikelySameJob` filter against starred/applied rows | Variant dropped before scoring. |
+| Cross-source title variants | `isLikelySameJob` filter against all existing rows (any tab, blocked by company) | Variant dropped before scoring. |
 | Browser extension attribute injection | `suppressHydrationWarning` on `<html>` | React warning suppressed; functionality unaffected. |
 
 ---

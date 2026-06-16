@@ -102,6 +102,8 @@ system: [
 
 A full pairwise similarity sweep across all `RawJob`s would be O(n²) — running it only against the small set of starred/applied rows keeps the cost bounded.
 
+> **Updated (see #52).** `isLikelySameJob` now runs against **every existing row in any tab/status** (not just starred/applied), blocked by normalized company so it stays bounded, and shares one normalizer with the hash. It also treats Remote/empty location as a wildcard. This fixes cross-source duplicates resurfacing in the Inbox across refreshes.
+
 ---
 
 ## 9. Per-user `Profile` / `Settings`, keyed by `userId @unique` (was: singleton id)
@@ -545,3 +547,29 @@ The same logic applies to `jobType`. For `source`, no UNKNOWN passes because eve
 **Consequence — a purged job can reappear.** `purge` removes the row entirely, unlike the soft `DELETED` status (which the refresh treats as a known repeat and keeps excluded forever, see `jobs/refresh/route.ts`). With no row left to match on `dedupeHash` / `(source, externalId)`, a still-live listing is seen as *fresh* on a later Research — re-scored, re-billed, re-shown. This was a deliberate, user-confirmed choice: "permanent" means "erased from your DB now", not "suppressed forever" (that's what the soft clear / *Don't Show Again* `DELETED` path is for).
 
 **Filter-consistency.** Both paths reuse the board's active filters via the shared `buildJobsParams()` helper, so Clear List sweeps exactly the set the user is currently viewing across all batches — not the unfiltered tab.
+
+---
+
+## 50. Research is hard-capped at 2.5 minutes, client-orchestrated, priority-preserving
+
+**Decision.** A single Research action is bounded by an overall **`RESEARCH_BUDGET_MS` = 150s** ceiling enforced in the board (`job-board.tsx`), not just by the per-request server budget. The client runs an auto-continue loop (DECISIONS #51); before each pass it computes the remaining overall budget and sends it as `budgetMs`, and the server scores for `min(budgetMs, REFRESH_BUDGET_MS)`. When the budget runs out before everything is scored, the run stops and the user sees "More jobs remain; run again to finish."
+
+**Why this still returns the best jobs.** Scoring batches are fed in pre-rank order, which already encodes source priority (`prerank.ts` + `priority.ts`: JSearch/LinkedIn-origin → Fantastic → BA → Adzuna → Jooble) and lexical relevance. So a budget-trimmed run scores the highest-priority/best-matching candidates first; the remainder is picked up on the next Research. The per-pass `REFRESH_BUDGET_MS` (default 45s) must stay under the platform function cap so each pass returns/persists/bills before the cap kills it (`240000` on Pro/Fluid, `50000` on Hobby — see DEPLOYMENT.md). Latency was explicitly de-prioritized by the owner in favor of a predictable ceiling.
+
+## 51. Auto-continue completes a run; continuation passes don't re-bill repeats
+
+**Decision.** One Research click keeps calling `/api/jobs/refresh` while the response reports `pendingMore` (the per-pass scoring deadline left fresh jobs unscored — **not** the intended `MAX_SCORE_CANDIDATES` truncation, which never triggers continuation). The loop stops on completion, the 2.5-min ceiling (#50), a no-progress pass, or a 6-pass cap. Passes after the first send `{ continuation: true }`, and the server then bills only newly-rated jobs' display+rating, **skipping the re-display charge for repeats** (already billed on pass 1).
+
+**Why.** Before this, a deadline-trimmed run scored only part of the set and the surfaced count grew run-over-run (the "38 then 70" report). Auto-continue makes one click score the whole set (or as much as 2.5 min allows), and the cost-neutral continuation keeps an N-pass run priced like a single complete run — honoring "complete every run" without a cost blow-up. `pendingMore` deliberately excludes cap-overflow so the loop never expands coverage/cost beyond the design.
+
+## 52. One shared normalizer + company-only blocking + cross-tab fuzzy dedup
+
+**Decision.** All cross-source duplicate detection routes through `src/lib/sources/normalize.ts` — the exact `dedupeHash`, the fuzzy `isLikelySameJob`, and the blocking keys share the same company/city/title normalization (legal-suffix strip, umlaut fold → digraphs, postal-code/country/region strip, `&`→`and`, German↔English city aliases). `isLikelySameJob` blocks by **normalized company only** (not company+city) and treats **Remote/empty location as compatible with any city**, keeping the balanced guard (same employer + matching seniority words + ≥70% title-word overlap). The refresh fuzzy filter now runs against **every existing row in any status/tab** (Inbox/pipeline/DELETED), not just starred/applied.
+
+**Why.** `dedupe.ts` and `similarity.ts` previously normalized differently (only the matcher stripped legal suffixes), so near-duplicates slipped past whichever stage was weaker; the strict company+city block meant most cross-source variants ("Zalando SE"/"Zalando", "Berlin"/"10115 Berlin"/"Remote", "München"/"Munich") never even got compared; and the fuzzy filter ignored existing `NEW` rows, so the same job from a second source on a later refresh became a second card. Unifying normalization, loosening the block, and comparing against all tabs fixes the common duplicate. **Consequence:** the hash inputs changed, so historical `Job.dedupeHash` values won't match new ones — the `(source, externalId)` repeat check and the cross-tab fuzzy filter absorb the one-time transition (a few old rows may re-score once; no duplicate wave).
+
+## 53. Platform config caches use a 30s TTL (not lifetime) + fresh admin reads
+
+**Decision.** `src/lib/platform.ts`'s per-process `settingCache`/`credCache` carry a **30s TTL** and a `{ fresh: true }` bypass. `getAiConfig`/`getProviderStatuses` thread `fresh` through; the admin AI dashboard GET (`/api/admin/system/ai`) reads fresh so it's always authoritative.
+
+**Why.** The app runs as many concurrent serverless instances, each with its own cache. A lifetime cache invalidated "on write" only updated the instance that served the write — every other instance kept its stale snapshot forever. Symptom: the admin "Active provider" appeared to flip (e.g. Gemini ↔ Groq) on refresh as the load balancer hit different instances, and — more seriously — scoring/CV-parsing could run on different providers per instance. The TTL converges the whole fleet within 30s; the fresh admin read removes the flip in the dashboard immediately. This is correct eventual consistency for a read-mostly config without adding pub/sub or a shared cache layer. Applies to all cached config (AI providers, source keys, `sources_disabled`, rate limits, budget alerts).

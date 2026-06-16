@@ -7,6 +7,24 @@ All notable changes to this project are documented here. Format follows [Keep a 
 Multi-tenancy with Auth.js, an in-app token economy, **Stripe payments**, a
 **multi-provider AI layer (Claude + Gemini + Groq)**, and a full **admin backoffice**.
 
+### Changed — Research: complete-every-run, hard-capped at 2.5 minutes
+
+- **Auto-continue.** One Research click now scores the whole candidate set: the board keeps calling `/api/jobs/refresh` (with `{ continuation: true }` + a `budgetMs`) while the response reports `pendingMore`, so the surfaced count no longer grows across consecutive runs. Continuation passes don't re-bill repeats, so an N-pass run costs the same as one complete run.
+- **2.5-minute ceiling.** The whole action is bounded by `RESEARCH_BUDGET_MS` (150s) in `job-board.tsx`; each pass scores for `min(remaining budget, REFRESH_BUDGET_MS)`. When time runs out, source-priority + pre-rank ordering means the best/highest-priority jobs were the ones scored; the rest come next run. See DECISIONS #50–#51.
+- **Throughput.** `SCORING_CONCURRENCY` 4 → 6; Claude scoring batch timeout 20s → 15s so a stalled batch can't eat a pass budget.
+- **Freshness.** Pre-rank recency weight 0.10 → 0.15 (title 0.45 → 0.40).
+- **ETA.** Research progress estimate recalibrated for multi-pass runs and capped at 150s.
+
+### Changed — Cross-source duplicate detection overhaul
+
+- **Shared normalizer** (`src/lib/sources/normalize.ts`): the exact hash and the fuzzy matcher now share one normalization — legal-suffix stripping (`Zalando SE`→`zalando`), umlaut folding (`München`→`muenchen`), postal-code/country/region stripping (`10115 Berlin`→`berlin`), `&`→`and`, and German↔English city aliases (`Munich`→`muenchen`).
+- **Looser, smarter matching.** `isLikelySameJob` blocks by normalized **company only** and treats **Remote/empty location as compatible with any city**, so a "Berlin" copy and a "Remote" copy of the same role merge (balanced guard kept: same employer + seniority + ≥70% title overlap).
+- **Cross-tab.** The refresh fuzzy filter now compares fresh candidates against **all existing rows in any tab/status** (Inbox/pipeline/DELETED), killing the common case of a job resurfacing from a second source on a later refresh. See DECISIONS #52. *(One-time: the dedupe hash inputs changed, so a few pre-existing rows may re-score once.)*
+
+### Fixed — AI provider settings flipping across serverless instances
+
+- The per-process `settingCache`/`credCache` (`src/lib/platform.ts`) had no expiry, so on multi-instance serverless each instance served its own stale config — the admin "Active provider" appeared to flip (e.g. Gemini ↔ Groq) on refresh, and scoring/CV-parsing could run on different providers per instance. Caches now carry a **30s TTL** (fleet converges within 30s) with a `{ fresh: true }` bypass; the admin AI dashboard GET reads fresh so it's always authoritative. See DECISIONS #53.
+
 ### Added — Clear List: whole-tab scope + permanent delete
 
 - **Whole-tab Clear List.** Clear List now clears **every job in the tab in one action**, not just the loaded page. On open, the board resolves the full filtered ID set via `GET /api/jobs?…&idsOnly=1` (uncapped, so it reaches jobs past the `MAX_BOARD_JOBS` inbox cap) and the dialog reports the true total. Fixes having to clear repeatedly when there were more jobs than the listing cap.
