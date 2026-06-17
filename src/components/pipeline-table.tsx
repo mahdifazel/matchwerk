@@ -1,13 +1,8 @@
 "use client";
 
 import { ExternalLink, Table2 } from "lucide-react";
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
 import { EmptyState } from "@/components/empty-state";
+import { NoteField } from "@/components/note-field";
 import {
   ARCHIVE_REASONS,
   INTERVIEW_STAGES,
@@ -61,64 +56,6 @@ function stageBadge(job: JobDTO): { label: string; badge: string } {
     default:
       return { label: "", badge: NEUTRAL_BADGE };
   }
-}
-
-/** Inline, auto-saving note cell (debounced while typing + on blur). */
-function NoteCell({
-  job,
-  onSave,
-}: {
-  job: JobDTO;
-  onSave: (id: string, note: string) => Promise<boolean>;
-}) {
-  const [value, setValue] = useState(job.note);
-  const [saving, setSaving] = useState(false);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastSaved = useRef(job.note);
-
-  const save = useCallback(
-    async (text: string) => {
-      if (text === lastSaved.current) return;
-      setSaving(true);
-      const ok = await onSave(job.id, text);
-      if (ok) lastSaved.current = text;
-      setSaving(false);
-    },
-    [job.id, onSave],
-  );
-
-  useEffect(
-    () => () => {
-      if (timer.current) clearTimeout(timer.current);
-    },
-    [],
-  );
-
-  return (
-    <div className="relative">
-      <textarea
-        value={value}
-        rows={1}
-        placeholder="Add a note…"
-        onChange={(e) => {
-          const text = e.target.value;
-          setValue(text);
-          if (timer.current) clearTimeout(timer.current);
-          timer.current = setTimeout(() => save(text), 700);
-        }}
-        onBlur={() => {
-          if (timer.current) clearTimeout(timer.current);
-          save(value);
-        }}
-        className="border-border/0 hover:border-border focus:border-ring focus:bg-background min-h-9 w-full min-w-44 resize-y rounded-md border bg-transparent px-2 py-1.5 text-[0.85rem] leading-relaxed outline-none transition-colors"
-      />
-      {saving && (
-        <span className="text-muted-foreground/70 pointer-events-none absolute right-2 top-2 text-[0.65rem]">
-          Saving…
-        </span>
-      )}
-    </div>
-  );
 }
 
 export function PipelineTable({
@@ -197,7 +134,11 @@ export function PipelineTable({
                     </a>
                   </td>
                   <td className="min-w-64 px-5 py-3">
-                    <NoteCell job={job} onSave={onSaveNote} />
+                    <NoteField
+                      job={job}
+                      onSave={onSaveNote}
+                      className="min-w-44"
+                    />
                   </td>
                 </tr>
               );
