@@ -993,6 +993,7 @@ export function JobBoard() {
                 pending={pending.has(job.id)}
                 isNew={newIds.has(job.id)}
                 onAction={handleAction}
+                onSaveNote={handleSaveNote}
               />
             ))}
           </div>

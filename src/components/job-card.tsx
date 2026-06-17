@@ -10,10 +10,13 @@ import {
   MessagesSquare,
   Sparkles,
   Star,
+  StickyNote,
   ThumbsDown,
   Undo2,
 } from "lucide-react";
+import { useState } from "react";
 import { ScoreMeter } from "@/components/match-badge";
+import { NoteField } from "@/components/note-field";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
@@ -157,15 +160,22 @@ export function JobCard({
   pending,
   isNew = false,
   onAction,
+  onSaveNote,
 }: {
   job: JobDTO;
   pending: boolean;
   /** Freshly discovered on the last Research run — flagged with a "New" badge. */
   isNew?: boolean;
   onAction: (id: string, action: JobAction, payload?: ActionPayload) => void;
+  /** Auto-saving note editor handler (debounced); returns save success. */
+  onSaveNote: (id: string, note: string) => Promise<boolean>;
 }) {
   const isInbox = job.status === "NEW";
   const isApplied = job.status === "APPLIED";
+  // Collapsed by default when there's no note yet — keeps cards compact. A note
+  // already on the job (or once the user opens the editor) shows the field.
+  const [noteOpen, setNoteOpen] = useState(false);
+  const showNote = noteOpen || job.note.trim().length > 0;
   const moves = STAGE_MOVES[job.status] ?? [];
   const score = job.matchScore;
   const accentClass =
@@ -261,6 +271,32 @@ export function JobCard({
               ))}
             </div>
           </div>
+        )}
+
+        {/* Notes — freeform, auto-saving (e.g. why you're not applying).
+            Collapsed to an "Add note" button until opened or a note exists. */}
+        {showNote ? (
+          <div className="flex flex-col gap-1.5">
+            <span className="eyebrow text-[0.7rem]">Notes</span>
+            <NoteField
+              job={job}
+              onSave={onSaveNote}
+              autoFocus={noteOpen && job.note.trim().length === 0}
+              placeholder="Add a note… e.g. why you're not applying"
+              onBlur={(v) => {
+                if (v.trim() === "") setNoteOpen(false);
+              }}
+            />
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setNoteOpen(true)}
+            className="text-muted-foreground hover:text-foreground inline-flex w-fit items-center gap-1.5 text-[0.85rem] transition-colors"
+          >
+            <StickyNote className="size-3.5" />
+            Add note
+          </button>
         )}
 
         {/* Rule + actions */}
