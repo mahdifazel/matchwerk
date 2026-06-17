@@ -38,6 +38,27 @@ const SCORING_BUDGET_MS = Number(process.env.REFRESH_BUDGET_MS) || 45_000;
 // would launch a pass that scores nothing.
 const MIN_PASS_BUDGET_MS = 8_000;
 
+// Matches the fetch-time freshness net default in src/lib/sources/search.ts.
+// After each Research action we also purge stale rows already in the DB so the
+// board never lingers on listings older than this once they age past it.
+const MAX_JOB_AGE_DAYS = 40;
+
+// Hard-delete the user's untracked rows whose posting date is older than the
+// freshness cutoff. Scoped to NEW (Inbox) + DELETED (hidden) only — tracked
+// pipeline rows (Starred/Applied/Interviewing/Offer/Archived) are preserved
+// regardless of age, since they represent the user's own intent. Rows with no
+// publishedAt are kept (treated as fresh, mirroring the fetch-time net).
+async function pruneStaleJobs(userId: string): Promise<void> {
+  const cutoff = new Date(Date.now() - MAX_JOB_AGE_DAYS * 24 * 60 * 60 * 1000);
+  await prisma.job.deleteMany({
+    where: {
+      userId,
+      status: { in: ["NEW", "DELETED"] },
+      publishedAt: { not: null, lt: cutoff },
+    },
+  });
+}
+
 export async function POST(request: Request) {
   try {
     // Optional body: { continuation?: boolean; budgetMs?: number }.
@@ -91,6 +112,14 @@ async function runRefresh(continuation: boolean, passBudgetMs: number) {
   const gate = await checkResearch(userId);
   if (!gate.allowed) {
     return NextResponse.json({ error: gate.error }, { status: gate.status });
+  }
+
+  // Purge stale rows once per Research action (skip on auto-continue passes,
+  // which share the same action). Runs before the fetch so freshly aged-out
+  // rows can't block a re-find — though anything >40 days won't survive the
+  // fetch-time freshness net anyway.
+  if (!continuation) {
+    await pruneStaleJobs(userId);
   }
 
   const settings = await getSettings(userId);
