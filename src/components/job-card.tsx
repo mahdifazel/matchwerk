@@ -283,6 +283,7 @@ export function JobCard({
               onSave={onSaveNote}
               autoFocus={noteOpen && job.note.trim().length === 0}
               placeholder="Add a note… e.g. why you're not applying"
+              style={{ color: "var(--destructive)", fontSize: "0.95rem" }}
               onBlur={(v) => {
                 if (v.trim() === "") setNoteOpen(false);
               }}
@@ -300,7 +301,7 @@ export function JobCard({
         )}
 
         {/* Rule + actions */}
-        <div className="bg-border/60 mt-1 h-px w-full" />
+        <div className="bg-border/60 -mt-2 h-px w-full" />
         <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-2">
           <div className="flex flex-wrap items-center gap-2">
             <div className="flex items-center gap-0.5">

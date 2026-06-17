@@ -1,5 +1,6 @@
 "use client";
 
+import type { CSSProperties } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { JobDTO } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -17,6 +18,7 @@ export function NoteField({
   placeholder = "Add a note…",
   autoFocus = false,
   onBlur,
+  style,
 }: {
   job: JobDTO;
   onSave: (id: string, note: string) => Promise<boolean>;
@@ -26,6 +28,8 @@ export function NoteField({
   autoFocus?: boolean;
   /** Called when the field loses focus, with the current value (after save). */
   onBlur?: (value: string) => void;
+  /** Inline styles applied to the textarea (e.g. note-text color). */
+  style?: CSSProperties;
 }) {
   const [value, setValue] = useState(job.note);
   const [saving, setSaving] = useState(false);
@@ -57,6 +61,7 @@ export function NoteField({
         rows={rows}
         autoFocus={autoFocus}
         placeholder={placeholder}
+        style={style}
         onChange={(e) => {
           const text = e.target.value;
           setValue(text);
