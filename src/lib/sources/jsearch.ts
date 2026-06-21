@@ -8,29 +8,22 @@ const ENDPOINT = "https://jsearch.p.rapidapi.com/search";
 const HOST = "jsearch.p.rapidapi.com";
 const MAX_TITLES = 4;
 
-/** Location phrases to append to the JSearch free-text query. */
-function buildLocationPhrases(params: SearchParams): {
-  phrase: string;
-  remote: boolean;
-}[] {
-  const out: { phrase: string; remote: boolean }[] = [];
-  let nationwide = false;
-  for (const loc of params.locations) {
-    if (loc.remote) out.push({ phrase: "Germany", remote: true });
-    else if (loc.baWo) out.push({ phrase: `${loc.baWo}, Germany`, remote: false });
-    else nationwide = true;
-  }
-  if (nationwide || out.length === 0) {
-    out.push({ phrase: "Germany", remote: false });
-  }
-  // De-dupe identical phrases.
-  const seen = new Set<string>();
-  return out.filter((o) => {
-    const key = `${o.phrase}|${o.remote}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// JSearch's free RapidAPI tier rate-limits bursts and has a small monthly
+// quota. We query titles sequentially (see `search`), but a 429 can still slip
+// through, so retry it a couple of times honoring Retry-After.
+const MAX_RETRIES_429 = 2;
+
+/**
+ * Location phrase appended to the JSearch free-text query. JSearch embeds the
+ * location in the query string AND sends `country=de`, so per-city phrases are
+ * redundant and just multiply requests. We collapse to a single nationwide
+ * "Germany" — city granularity is recovered downstream from each job's
+ * city/state, and the request count drops to one per title (vs title×city).
+ */
+function buildLocationPhrase(): string {
+  return "Germany";
 }
 
 type JSearchJob = {
@@ -87,18 +80,29 @@ async function fetchQuery(
   // "month" is the broadest value that actually returns results.
   url.searchParams.set("date_posted", "month");
 
-  const res = await fetchWithTimeout(url, {
-    headers: {
-      "X-RapidAPI-Key": apiKey,
-      "X-RapidAPI-Host": HOST,
-    },
-    cache: "no-store",
-  });
-  if (!res.ok) {
-    throw new Error(`JSearch returned ${res.status} for "${query}"`);
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetchWithTimeout(url, {
+      headers: {
+        "X-RapidAPI-Key": apiKey,
+        "X-RapidAPI-Host": HOST,
+      },
+      cache: "no-store",
+    });
+    if (res.status === 429 && attempt < MAX_RETRIES_429) {
+      const retryAfter = Number(res.headers.get("retry-after"));
+      const waitMs =
+        Number.isFinite(retryAfter) && retryAfter > 0
+          ? retryAfter * 1000
+          : 1000 * (attempt + 1);
+      await sleep(waitMs);
+      continue;
+    }
+    if (!res.ok) {
+      throw new Error(`JSearch returned ${res.status} for "${query}"`);
+    }
+    const data = (await res.json()) as JSearchResponse;
+    return data.data ?? [];
   }
-  const data = (await res.json()) as JSearchResponse;
-  return data.data ?? [];
 }
 
 function toRawJob(job: JSearchJob): RawJob | null {
@@ -159,29 +163,29 @@ export const jsearch: JobSource = {
     if (!apiKey) return [];
 
     const titles = params.jobTitles.slice(0, MAX_TITLES);
-    const phrases = buildLocationPhrases(params);
+    const phrase = buildLocationPhrase();
     const seen = new Set<string>();
     const jobs: RawJob[] = [];
 
-    const tasks: Promise<void>[] = [];
-    for (const title of titles) {
-      for (const { phrase } of phrases) {
-        const query = `${title} in ${phrase}`;
-        tasks.push(
-          fetchQuery(apiKey, query)
-            .then((items) => {
-              for (const item of items) {
-                const raw = toRawJob(item);
-                if (raw && !seen.has(raw.externalId)) {
-                  seen.add(raw.externalId);
-                  jobs.push(raw);
-                }
-              }
-            })
-            .catch((err) => console.error("[jsearch]", err)),
-        );
-      }
-    }
+    // One request per title (location is collapsed to nationwide), run in
+    // parallel. The old code fired title×city (~12 calls) which tripped the free
+    // tier's throttle and burned quota; with the location collapse this is now
+    // only ≤MAX_TITLES calls — under the throttle — so parallel is safe and keeps
+    // the fetch fast (it runs on every pass). fetchQuery retries a 429 as a
+    // backstop. A single failed query is logged and skipped, not fatal.
+    const tasks = titles.map((title) =>
+      fetchQuery(apiKey, `${title} in ${phrase}`)
+        .then((items) => {
+          for (const item of items) {
+            const raw = toRawJob(item);
+            if (raw && !seen.has(raw.externalId)) {
+              seen.add(raw.externalId);
+              jobs.push(raw);
+            }
+          }
+        })
+        .catch((err) => console.error("[jsearch]", err)),
+    );
     await Promise.all(tasks);
     return jobs;
   },
