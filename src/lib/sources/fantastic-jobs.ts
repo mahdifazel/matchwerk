@@ -38,27 +38,29 @@ function unwrap(raw: ActiveJobsResponse): ActiveJob[] {
   return raw?.data ?? [];
 }
 
+// The free Active Jobs DB tier allows only ~25 requests/month plus a per-second
+// throttle, so we must minimise calls. `location_filter=Germany` already returns
+// city jobs (Berlin/Munich/Hamburg are a subset), so instead of one request per
+// city we collapse to at most TWO queries: a single nationwide on-site query and
+// a single remote query. Downstream city filtering still works off the derived
+// location text on each job.
 function buildLocationFilters(params: SearchParams): {
   filter: string | null;
   remote: boolean;
 }[] {
-  const out: { filter: string | null; remote: boolean }[] = [];
-  let nationwide = false;
+  let wantRemote = false;
+  let wantOnsite = false;
   for (const loc of params.locations) {
-    if (loc.remote) out.push({ filter: null, remote: true });
-    else if (loc.baWo) out.push({ filter: loc.baWo, remote: false });
-    else nationwide = true;
+    if (loc.remote) wantRemote = true;
+    else wantOnsite = true; // any city or "All Germany" → nationwide on-site
   }
-  if (nationwide || out.length === 0) {
-    out.push({ filter: "Germany", remote: false });
-  }
-  const seen = new Set<string>();
-  return out.filter((o) => {
-    const key = `${o.filter ?? ""}|${o.remote}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  // Nothing selected → default to nationwide.
+  if (!wantRemote && !wantOnsite) wantOnsite = true;
+
+  const out: { filter: string | null; remote: boolean }[] = [];
+  if (wantOnsite) out.push({ filter: "Germany", remote: false });
+  if (wantRemote) out.push({ filter: null, remote: true });
+  return out;
 }
 
 function mapEmploymentType(values?: string[]): JobType {
@@ -103,6 +105,16 @@ function buildTsQuery(titles: string[]): string {
   return [...new Set(groups)].join(" | ");
 }
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// The free Active Jobs DB tier rate-limits bursts hard. We query locations
+// sequentially (see `search`), but a 429 can still slip through, so retry it a
+// couple of times honoring Retry-After before giving up on that query.
+const MAX_RETRIES_429 = 2;
+
+// Minimum gap between sequential requests to stay under the per-second throttle.
+const REQUEST_SPACING_MS = 1_200;
+
 async function fetchQuery(
   apiKey: string,
   titles: string[],
@@ -124,19 +136,30 @@ async function fetchQuery(
   url.searchParams.set("limit", String(LIMIT_PER_QUERY));
   url.searchParams.set("offset", "0");
 
-  const res = await fetchWithTimeout(url, {
-    headers: {
-      accept: "application/json",
-      "X-RapidAPI-Key": apiKey,
-      "X-RapidAPI-Host": HOST,
-    },
-    cache: "no-store",
-  });
-  if (!res.ok) {
-    throw new Error(`Fantastic.jobs returned ${res.status}`);
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetchWithTimeout(url, {
+      headers: {
+        accept: "application/json",
+        "X-RapidAPI-Key": apiKey,
+        "X-RapidAPI-Host": HOST,
+      },
+      cache: "no-store",
+    });
+    if (res.status === 429 && attempt < MAX_RETRIES_429) {
+      const retryAfter = Number(res.headers.get("retry-after"));
+      const waitMs =
+        Number.isFinite(retryAfter) && retryAfter > 0
+          ? retryAfter * 1000
+          : 1000 * (attempt + 1);
+      await sleep(waitMs);
+      continue;
+    }
+    if (!res.ok) {
+      throw new Error(`Fantastic.jobs returned ${res.status}`);
+    }
+    const data = (await res.json()) as ActiveJobsResponse;
+    return unwrap(data);
   }
-  const data = (await res.json()) as ActiveJobsResponse;
-  return unwrap(data);
 }
 
 function toRawJob(job: ActiveJob): RawJob | null {
@@ -203,20 +226,27 @@ export const fantasticJobs: JobSource = {
     const seen = new Set<string>();
     const jobs: RawJob[] = [];
 
-    const tasks: Promise<void>[] = filters.map(({ filter, remote }) =>
-      fetchQuery(apiKey, titles, filter, remote)
-        .then((items) => {
-          for (const item of items) {
-            const raw = toRawJob(item);
-            if (raw && !seen.has(raw.externalId)) {
-              seen.add(raw.externalId);
-              jobs.push(raw);
-            }
+    // Query locations SEQUENTIALLY with a gap between calls: the free Active
+    // Jobs DB tier enforces a per-second throttle, so firing requests back to
+    // back (let alone the old parallel Promise.all) makes them 429 and return
+    // nothing. A single failed query is logged and skipped without sinking the
+    // others.
+    for (let i = 0; i < filters.length; i++) {
+      const { filter, remote } = filters[i];
+      if (i > 0) await sleep(REQUEST_SPACING_MS);
+      try {
+        const items = await fetchQuery(apiKey, titles, filter, remote);
+        for (const item of items) {
+          const raw = toRawJob(item);
+          if (raw && !seen.has(raw.externalId)) {
+            seen.add(raw.externalId);
+            jobs.push(raw);
           }
-        })
-        .catch((err) => console.error("[fantastic-jobs]", err)),
-    );
-    await Promise.all(tasks);
+        }
+      } catch (err) {
+        console.error("[fantastic-jobs]", err);
+      }
+    }
     return jobs;
   },
 };
