@@ -11,7 +11,7 @@ import { prisma } from "@/lib/prisma";
 import { getProfile, getSessionUserId, getSettings } from "@/lib/repo";
 import { charge, TOKEN } from "@/lib/tokens";
 import { getEnabledSourceIds } from "@/lib/credentials";
-import { checkResearch } from "@/lib/limits";
+import { checkResearch, getScoringLimits } from "@/lib/limits";
 import { searchEnabledSources } from "@/lib/sources";
 import { isBlockedPublisher } from "@/lib/sources/blocklist";
 import { dedupeRawJobs } from "@/lib/sources/dedupe";
@@ -251,12 +251,15 @@ async function runRefresh(continuation: boolean, passBudgetMs: number) {
   // 3d. Cap the fresh jobs that reach AI scoring to the top-K candidates. `fresh`
   // is already in lexical-relevance order (derived by filtering the pre-ranked
   // `considered`), so this keeps the strongest matches and bounds AI token spend
-  // + latency regardless of how many jobs were fetched.
+  // + latency regardless of how many jobs were fetched. The cap is admin-tunable
+  // (Admin → System Settings → "Jobs scored per Research") so cost/coverage can
+  // be adjusted without a redeploy; it defaults to TOKEN.MAX_SCORE_CANDIDATES.
   // Track overflow so the response can flag that fresh jobs were left unscored
   // by the candidate cap (the user should run again to pick them up).
-  const cappedOverflow = Math.max(0, fresh.length - TOKEN.MAX_SCORE_CANDIDATES);
+  const { maxScoreCandidates } = await getScoringLimits();
+  const cappedOverflow = Math.max(0, fresh.length - maxScoreCandidates);
   if (cappedOverflow > 0) {
-    fresh = fresh.slice(0, TOKEN.MAX_SCORE_CANDIDATES);
+    fresh = fresh.slice(0, maxScoreCandidates);
   }
 
   // Skip scoring entirely if there's nothing fresh to score — bill just the
