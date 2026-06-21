@@ -191,6 +191,10 @@ export function JobBoard() {
   const [clearOpen, setClearOpen] = useState(false);
   const [clearPermanent, setClearPermanent] = useState(false);
   const [clearing, setClearing] = useState(false);
+  // Shown when the user hits Research before a CV/profile exists — Research
+  // needs a parsed profile to score against, so we redirect them to Settings
+  // instead of firing a request that the server would just reject.
+  const [needProfileOpen, setNeedProfileOpen] = useState(false);
   // Full set of job IDs in the current tab (all batches, not just the loaded
   // page) so one Clear List action sweeps the whole tab. null = still loading.
   const [clearTargets, setClearTargets] = useState<string[] | null>(null);
@@ -422,6 +426,18 @@ export function JobBoard() {
       setRefreshing(false);
     }
   }, [fetchJobs]);
+
+  // Gate Research on having a parsed CV profile. When it's missing, prompt the
+  // user to set it up in Settings rather than starting a run that can't score.
+  // `hasProfile === null` (still loading) falls through to handleRefresh, where
+  // the server-side gate is the backstop.
+  const requestResearch = useCallback(() => {
+    if (hasProfile === false) {
+      setNeedProfileOpen(true);
+      return;
+    }
+    handleRefresh();
+  }, [hasProfile, handleRefresh]);
 
   const handleAction = useCallback(
     async (id: string, action: JobAction, payload?: ActionPayload) => {
@@ -699,7 +715,7 @@ export function JobBoard() {
         <div className="mt-8 flex flex-col items-start gap-x-8 gap-y-6 sm:flex-row sm:flex-wrap sm:items-center">
           <RefreshButton
             refreshing={refreshing}
-            onClick={handleRefresh}
+            onClick={requestResearch}
             className="w-full sm:w-auto"
           />
           <StatStrip
@@ -878,6 +894,25 @@ export function JobBoard() {
           </div>
         </div>
 
+        <AlertDialog open={needProfileOpen} onOpenChange={setNeedProfileOpen}>
+          <AlertDialogContent className="data-[size=default]:max-w-sm">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Set up your profile first</AlertDialogTitle>
+              <AlertDialogDescription>
+                Research scores jobs against your CV, so we need it before we can
+                start. Head to Settings to upload your CV and add your details,
+                then come back and hit Research.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Not now</AlertDialogCancel>
+              <AlertDialogAction nativeButton={false} render={<Link href="/settings" />}>
+                Go to Settings
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
         <AlertDialog open={clearOpen} onOpenChange={setClearOpen}>
           <AlertDialogContent className="data-[size=default]:max-w-sm data-[size=default]:sm:max-w-lg">
             <AlertDialogHeader>
@@ -980,7 +1015,7 @@ export function JobBoard() {
             description={emptyByTab[tab].description}
             action={
               tab === "inbox" ? (
-                <RefreshButton refreshing={refreshing} onClick={handleRefresh} />
+                <RefreshButton refreshing={refreshing} onClick={requestResearch} />
               ) : undefined
             }
           />
