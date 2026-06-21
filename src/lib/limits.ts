@@ -28,6 +28,43 @@ export async function setRateLimits(v: RateLimits): Promise<void> {
   await setAppSetting<RateLimits>(SETTING_KEY, v);
 }
 
+export type ScoringLimits = {
+  /**
+   * Max fresh jobs sent to AI scoring per Research run — the main cost/coverage
+   * knob. The lexical pre-rank keeps the strongest matches, so lowering this
+   * drops only the weakest tail. Bounded by SCORING_BOUNDS below.
+   */
+  maxScoreCandidates: number;
+};
+
+/** Inclusive bounds for `maxScoreCandidates` (also enforced in the admin route). */
+export const SCORING_BOUNDS = { min: 10, max: TOKEN.MAX_SEARCH_JOBS } as const;
+
+const SCORING_DEFAULTS: ScoringLimits = {
+  maxScoreCandidates: TOKEN.MAX_SCORE_CANDIDATES,
+};
+const SCORING_KEY = "scoring_limits";
+
+export async function getScoringLimits(): Promise<ScoringLimits> {
+  const v = await getAppSetting<Partial<ScoringLimits>>(
+    SCORING_KEY,
+    SCORING_DEFAULTS,
+  );
+  const raw = v.maxScoreCandidates ?? SCORING_DEFAULTS.maxScoreCandidates;
+  // Clamp defensively so a hand-edited setting can never push scoring above the
+  // search cap or below a usable floor.
+  return {
+    maxScoreCandidates: Math.min(
+      SCORING_BOUNDS.max,
+      Math.max(SCORING_BOUNDS.min, Math.round(raw)),
+    ),
+  };
+}
+
+export async function setScoringLimits(v: ScoringLimits): Promise<void> {
+  await setAppSetting<ScoringLimits>(SCORING_KEY, v);
+}
+
 export type GateResult =
   | { allowed: true }
   | { allowed: false; status: number; error: string };

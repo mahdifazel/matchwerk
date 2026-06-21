@@ -8,12 +8,12 @@ import { BudgetSettings } from "@/components/admin/budget-settings";
 import { ContactDestinationSettings } from "@/components/admin/contact-destination-settings";
 import { EmailSettings } from "@/components/admin/email-settings";
 import { RateLimitSettings } from "@/components/admin/rate-limit-settings";
+import { ScoringLimitSettings } from "@/components/admin/scoring-limit-settings";
 import { SourceSettings } from "@/components/admin/source-settings";
 import { StatusBadge } from "@/components/admin/admin-ui";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 
 type ProviderId = "claude" | "gemini" | "groq";
@@ -105,9 +105,8 @@ export function SystemSettings() {
     });
   }
 
-  function toggleScoringOnGroq() {
-    if (!config) return;
-    const next: ProviderId | null = config.scoringActive === "groq" ? null : "groq";
+  function setScoringProvider(next: ProviderId | null) {
+    if (!config || config.scoringActive === next) return;
     saveConfig({ ...config, scoringActive: next });
   }
 
@@ -147,16 +146,20 @@ export function SystemSettings() {
         )}
 
         {config && (
-          <ScoringProviderToggle
-            on={config.scoringActive === "groq"}
-            groqReady={Boolean(
-              providers.find((p) => p.id === "groq")?.configured &&
-                config.enabled.groq,
-            )}
+          <ScoringProviderSelect
+            value={config.scoringActive}
+            providers={providers}
             busy={busy}
-            onToggle={toggleScoringOnGroq}
+            onSelect={setScoringProvider}
           />
         )}
+
+        <div className="space-y-3 pt-2">
+          <h3 className="font-display text-lg tracking-tight">
+            Jobs scored per Research
+          </h3>
+          <ScoringLimitSettings />
+        </div>
       </section>
 
       <section className="space-y-3">
@@ -191,40 +194,68 @@ export function SystemSettings() {
   );
 }
 
-function ScoringProviderToggle({
-  on,
-  groqReady,
+// Short cost/quality hint per scoring choice. `null` = "use the active provider".
+const SCORING_HINTS: Record<ProviderId, string> = {
+  claude: "Haiku 4.5 — highest quality, highest cost.",
+  gemini: "Gemini Flash — ~3× cheaper than Haiku, near-Haiku quality. Best value.",
+  groq: "Llama 3.3 — free, but lower nuance on language/seniority signals.",
+};
+
+function ScoringProviderSelect({
+  value,
+  providers,
   busy,
-  onToggle,
+  onSelect,
 }: {
-  on: boolean;
-  groqReady: boolean;
+  value: ProviderId | null;
+  providers: Provider[];
   busy: boolean;
-  onToggle: () => void;
+  onSelect: (id: ProviderId | null) => void;
 }) {
-  // Off can always be set; On requires a configured + enabled Groq.
-  const disabled = busy || (!on && !groqReady);
+  // A provider is selectable for scoring only when it has a key AND is enabled,
+  // so scoring never points at a provider the chain would skip. "Same as active"
+  // (null) is always available — it just defers to the active provider.
+  const ready = (id: ProviderId) =>
+    Boolean(providers.find((p) => p.id === id)?.configured) &&
+    Boolean(providers.find((p) => p.id === id)?.enabled);
+
+  const options: { id: ProviderId | null; label: string }[] = [
+    { id: null, label: "Same as active" },
+    ...providers.map((p) => ({ id: p.id, label: p.label })),
+  ];
+
   return (
-    <div className="flex items-start justify-between gap-4 rounded-2xl border border-border/60 bg-card p-5">
-      <div>
-        <h3 className="font-display text-lg tracking-tight">Run job scoring on Groq</h3>
-        <p className="text-muted-foreground mt-1 text-sm">
-          Score jobs with Groq (free) while CV parsing stays on the active
-          provider for quality. Falls back through the normal chain if Groq is
-          unavailable. When off, scoring uses the active provider like today.
-        </p>
-        {!groqReady && (
-          <p className="text-muted-foreground mt-2 text-xs">
-            Add a Groq key and enable the Groq provider above to turn this on.
-          </p>
-        )}
+    <div className="rounded-2xl border border-border/60 bg-card p-5">
+      <h3 className="font-display text-lg tracking-tight">Scoring provider</h3>
+      <p className="text-muted-foreground mt-1 text-sm">
+        Which provider rates jobs. CV parsing always uses the active provider for
+        quality; this only changes job scoring (the recurring cost). Falls back
+        through the normal chain if the chosen provider is unavailable.
+      </p>
+      <div className="mt-4 flex flex-wrap gap-2">
+        {options.map((opt) => {
+          const selected = value === opt.id;
+          const disabled =
+            busy || (opt.id !== null && !ready(opt.id) && !selected);
+          return (
+            <Button
+              key={opt.id ?? "active"}
+              size="sm"
+              variant={selected ? "default" : "outline"}
+              disabled={disabled}
+              onClick={() => onSelect(opt.id)}
+            >
+              {selected && <Check className="size-3.5" />}
+              {opt.label}
+            </Button>
+          );
+        })}
       </div>
-      <Switch
-        checked={on}
-        disabled={disabled}
-        onCheckedChange={onToggle}
-        aria-label="Run job scoring on Groq"
-      />
+      <p className="text-muted-foreground mt-3 text-xs">
+        {value === null
+          ? "Scoring uses the active provider, same as today."
+          : SCORING_HINTS[value]}
+      </p>
     </div>
   );
 }
