@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, KeyRound } from "lucide-react";
+import { Check, ChevronDown, ChevronUp, KeyRound, RotateCcw } from "lucide-react";
 import { AdminPageHeader } from "@/components/admin/admin-page-header";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -83,10 +83,9 @@ export function SystemSettings() {
   function makeActive(id: ProviderId) {
     if (!config) return;
     saveConfig({
+      ...config,
       active: id,
-      fallback: FALLBACK_ORDER,
       enabled: { ...config.enabled, [id]: true },
-      scoringActive: config.scoringActive,
     });
   }
 
@@ -97,17 +96,26 @@ export function SystemSettings() {
       toast.error("Can't disable the active provider. Switch active first.");
       return;
     }
-    saveConfig({
-      active: config.active,
-      fallback: FALLBACK_ORDER,
-      enabled: nextEnabled,
-      scoringActive: config.scoringActive,
-    });
+    saveConfig({ ...config, enabled: nextEnabled });
   }
 
   function setScoringProvider(next: ProviderId | null) {
     if (!config || config.scoringActive === next) return;
     saveConfig({ ...config, scoringActive: next });
+  }
+
+  function reorderFallback(index: number, dir: -1 | 1) {
+    if (!config) return;
+    const target = index + dir;
+    if (target < 0 || target >= config.fallback.length) return;
+    const next = [...config.fallback];
+    [next[index], next[target]] = [next[target], next[index]];
+    saveConfig({ ...config, fallback: next });
+  }
+
+  function resetFallback() {
+    if (!config) return;
+    saveConfig({ ...config, fallback: FALLBACK_ORDER });
   }
 
   return (
@@ -143,6 +151,16 @@ export function SystemSettings() {
               />
             ))}
           </div>
+        )}
+
+        {config && (
+          <FallbackOrderEditor
+            fallback={config.fallback}
+            providers={providers}
+            busy={busy}
+            onReorder={reorderFallback}
+            onReset={resetFallback}
+          />
         )}
 
         {config && (
@@ -190,6 +208,90 @@ export function SystemSettings() {
         <h2 className="eyebrow">Contact destination</h2>
         <ContactDestinationSettings />
       </section>
+    </div>
+  );
+}
+
+function FallbackOrderEditor({
+  fallback,
+  providers,
+  busy,
+  onReorder,
+  onReset,
+}: {
+  fallback: ProviderId[];
+  providers: Provider[];
+  busy: boolean;
+  onReorder: (index: number, dir: -1 | 1) => void;
+  onReset: () => void;
+}) {
+  const isDefaultOrder =
+    fallback.length === FALLBACK_ORDER.length &&
+    fallback.every((id, i) => id === FALLBACK_ORDER[i]);
+  return (
+    <div className="rounded-2xl border border-border/60 bg-card p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h3 className="font-display text-lg tracking-tight">Fallback order</h3>
+          <p className="text-muted-foreground mt-1 text-sm">
+            When the active (or chosen scoring) provider errors, the app tries
+            these in order, skipping any that&apos;s disabled or missing a key.
+            Reorder to control which provider catches the overflow first.
+          </p>
+        </div>
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={busy || isDefaultOrder}
+          onClick={onReset}
+        >
+          <RotateCcw className="size-3.5" /> Reset
+        </Button>
+      </div>
+      <ol className="mt-4 space-y-2">
+        {fallback.map((id, i) => {
+          const p = providers.find((x) => x.id === id);
+          const skipped = p ? !p.enabled || !p.configured : false;
+          return (
+            <li
+              key={id}
+              className="flex items-center justify-between gap-3 rounded-xl border border-border/60 bg-background/50 px-3 py-2"
+            >
+              <div className="flex items-center gap-3">
+                <span className="text-muted-foreground w-4 text-xs tabular-nums">
+                  {i + 1}
+                </span>
+                <span className="text-sm">{p?.label ?? id}</span>
+                {skipped && (
+                  <span className="text-muted-foreground text-xs">
+                    ({p && !p.enabled ? "disabled" : "no key"} — skipped)
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-1">
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  disabled={busy || i === 0}
+                  onClick={() => onReorder(i, -1)}
+                  aria-label={`Move ${p?.label ?? id} up`}
+                >
+                  <ChevronUp className="size-4" />
+                </Button>
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  disabled={busy || i === fallback.length - 1}
+                  onClick={() => onReorder(i, 1)}
+                  aria-label={`Move ${p?.label ?? id} down`}
+                >
+                  <ChevronDown className="size-4" />
+                </Button>
+              </div>
+            </li>
+          );
+        })}
+      </ol>
     </div>
   );
 }
