@@ -7,6 +7,23 @@ All notable changes to this project are documented here. Format follows [Keep a 
 Multi-tenancy with Auth.js, an in-app token economy, **Stripe payments**, a
 **multi-provider AI layer (Claude + Gemini + Groq)**, and a full **admin backoffice**.
 
+### Fixed — JSearch & Fantastic.jobs returned 0/few jobs on the free RapidAPI tier
+
+- Both adapters fired one request per title×location in parallel, tripping the free tier's per-second throttle and burning its tiny monthly quota (Active Jobs DB: ~25 requests/month) — so Fantastic returned **0** every run and JSearch only a fraction.
+- **JSearch:** location collapsed to a single nationwide `"Germany"` query (`country=de` scopes results), cutting requests from title×city (~12) to **≤MAX_TITLES**, kept parallel + a **429 retry** (honors `Retry-After`).
+- **Fantastic.jobs:** collapsed to **≤2 sequential queries** (nationwide + remote, `location_filter=Germany` covers the cities) spaced 1.2s, + the same 429 retry.
+- City granularity is recovered downstream from each job's city/state and the board's location filter. See DECISIONS #54. *(Operational note: a stale/over-quota **DB-stored** API key silently shadows a working env key — `PlatformCredential` overrides `process.env` — so also verify which key resolves.)*
+
+### Added — admin AI cost controls (scoring provider, fallback order, volume cap)
+
+- **Scoring provider selector** (System Settings → AI providers): job scoring can run on any configured+enabled provider (e.g. Gemini Flash, ~3× cheaper than Claude Haiku) while CV parsing stays on the active provider. Generalises the old Groq-only toggle; `null` = "Same as active".
+- **Reorderable fallback chain:** up/down per provider + Reset; switching the active provider or toggling enablement no longer wipes a custom order.
+- **"Jobs scored per Research"** number field (`AppSetting "scoring_limits"`, bounds 10–`MAX_SEARCH_JOBS`, default 80) tunes the scoring volume/cost without a redeploy; the refresh route reads it via `getScoringLimits()`. Pre-rank keeps the strongest matches, so lowering it drops only the weakest tail. See DECISIONS #55.
+
+### Added — Research is gated on a CV profile
+
+- Clicking **Research** without a parsed CV profile now opens a dialog prompting the user to set up their profile in Settings (with a "Go to Settings" link), instead of firing a request the server would reject. `hasProfile === null` (still loading) falls through to the existing server-side gate as a backstop.
+
 ### Changed — Research: complete-every-run, hard-capped at 2.5 minutes
 
 - **Auto-continue.** One Research click now scores the whole candidate set: the board keeps calling `/api/jobs/refresh` (with `{ continuation: true }` + a `budgetMs`) while the response reports `pendingMore`, so the surfaced count no longer grows across consecutive runs. Continuation passes don't re-bill repeats, so an N-pass run costs the same as one complete run.
