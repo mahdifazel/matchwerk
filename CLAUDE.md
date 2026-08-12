@@ -140,8 +140,8 @@ Job_Hunter/
             ├── dedupe.ts           # SHA-1 hash (via normalize.ts) + fuzzy merge blocked by company
             ├── similarity.ts       # isLikelySameJob — company-only block + Remote-as-wildcard city; used to dedupe vs ALL existing board rows
             ├── ba-jobboerse.ts     # Public German API, no key
-            ├── jsearch.ts          # RapidAPI aggregator (reads getSourceCredentials("JSEARCH"))
-            ├── fantastic-jobs.ts   # RapidAPI Active Jobs DB (tsquery title filter)
+            ├── jsearch.ts          # RapidAPI aggregator (one nationwide query per title — location collapsed to country=de; ≤MAX_TITLES parallel calls + 429 retry to survive the free tier)
+            ├── fantastic-jobs.ts   # RapidAPI Active Jobs DB (tsquery title filter; ≤2 sequential queries — nationwide + remote — spaced 1.2s + 429 retry for the free tier's tiny quota/throttle)
             ├── adzuna.ts           # Adzuna /de/search
             └── jooble.ts           # Jooble aggregator (POST /api/{apiKey})
 ```
