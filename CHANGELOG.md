@@ -7,6 +7,15 @@ All notable changes to this project are documented here. Format follows [Keep a 
 Multi-tenancy with Auth.js, an in-app token economy, **Stripe payments**, a
 **multi-provider AI layer (Claude + Gemini + Groq)**, and a full **admin backoffice**.
 
+### Fixed — BA Jobbörse returned 0 jobs (403 on every request)
+
+- The Bundesagentur retired the `pc/v4/jobs` endpoint server-side (every call now 403s) in favor of `pc/v6/jobs`, which also renamed nearly every response field (`ergebnisliste`, `stellenangebotsTitel`, `referenznummer`, `firma`, `stellenlokationen[].adresse`, `externeURL`) and quietly dropped the `arbeitszeit=ho` remote-only filter (accepted but always 0 hits now).
+- Migrated the adapter to v6 and its field shapes. A **Remote** location selection now folds into an unfiltered nationwide query (the dead server-side filter can't do better), with remote-ness read back per listing from the new `homeofficemoeglich` field instead of guessed from which query produced it. See DECISIONS #56.
+
+### Added — search on every board tab, not just Pipeline
+
+- The Pipeline table's free-text search (company, role, location, note, status) is now available on Inbox/Starred/Applied/Interviewing/Offer/Archived too, not just Pipeline. Same behavior everywhere: client-side, case-insensitive, "No matching jobs" empty state, count shows matches-vs-total. Resets on tab switch.
+
 ### Fixed — JSearch & Fantastic.jobs returned 0/few jobs on the free RapidAPI tier
 
 - Both adapters fired one request per title×location in parallel, tripping the free tier's per-second throttle and burning its tiny monthly quota (Active Jobs DB: ~25 requests/month) — so Fantastic returned **0** every run and JSearch only a fraction.
