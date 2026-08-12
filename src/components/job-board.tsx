@@ -198,8 +198,9 @@ export function JobBoard() {
   // Full set of job IDs in the current tab (all batches, not just the loaded
   // page) so one Clear List action sweeps the whole tab. null = still loading.
   const [clearTargets, setClearTargets] = useState<string[] | null>(null);
-  // Free-text search over the Pipeline table (Pipeline tab only).
-  const [pipelineSearch, setPipelineSearch] = useState("");
+  // Free-text search over the currently loaded tab's jobs (every tab,
+  // including Pipeline). Client-side only — filters what's already loaded.
+  const [search, setSearch] = useState("");
   // IDs flagged "New" from the last Research. Hydrated from localStorage after
   // mount (empty on the server render to avoid a hydration mismatch).
   const [newIds, setNewIds] = useState<Set<string>>(() => new Set());
@@ -632,11 +633,11 @@ export function JobBoard() {
     },
   };
 
-  // Pipeline search: filter the table rows across the visible fields. When no
-  // query is active this is the full set, so the table + count are unchanged.
-  const pipelineFiltered = useMemo(() => {
-    if (tab !== "pipeline") return jobs;
-    const q = pipelineSearch.trim().toLowerCase();
+  // Search: filter the currently loaded tab's jobs across the visible fields.
+  // When no query is active this is the full set, so the list + count are
+  // unchanged. Works the same way on every tab, not just Pipeline.
+  const filteredJobs = useMemo(() => {
+    const q = search.trim().toLowerCase();
     if (!q) return jobs;
     return jobs.filter((j) =>
       [
@@ -649,12 +650,10 @@ export function JobBoard() {
         .filter(Boolean)
         .some((field) => field.toLowerCase().includes(q)),
     );
-  }, [tab, jobs, pipelineSearch]);
+  }, [jobs, search]);
 
   // Count shown next to the search box: matches when searching, total otherwise.
-  const pipelineCount = pipelineSearch.trim()
-    ? pipelineFiltered.length
-    : jobs.length;
+  const filteredCount = search.trim() ? filteredJobs.length : jobs.length;
 
   const stats = useMemo(() => {
     let strong = 0;
@@ -673,7 +672,10 @@ export function JobBoard() {
       <button
         key={t.id}
         type="button"
-        onClick={() => setTab(t.id)}
+        onClick={() => {
+          setTab(t.id);
+          setSearch("");
+        }}
         className={cn(
           "relative inline-flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-[0.95rem] font-medium tracking-tight whitespace-nowrap transition-colors",
           active
@@ -810,48 +812,43 @@ export function JobBoard() {
         </div>
         </div>
 
-        {/* Secondary toolbar. Pipeline: a search box (with the matching/total
-            count to its right) on the left + Export Table on the right. Status
-            tabs: the listing count on the left + Filters/Clear List on the right. */}
+        {/* Secondary toolbar: a search box (with the matching/total count to
+            its right) on the left, on every tab, plus tab-specific actions on
+            the right — Export Table on Pipeline, Filters/Clear List elsewhere. */}
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-          {tab === "pipeline" ? (
-            <div className="flex flex-1 flex-wrap items-center gap-3">
-              <div className="relative w-full max-w-xs">
-                <Search className="text-muted-foreground/70 pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2" />
-                <input
-                  type="text"
-                  value={pipelineSearch}
-                  onChange={(e) => setPipelineSearch(e.target.value)}
-                  placeholder="Search the pipeline…"
-                  aria-label="Search the pipeline"
-                  className="border-border/70 bg-card/40 focus:border-ring focus:ring-ring/30 h-9 w-full rounded-full border pl-9 pr-9 text-sm outline-none transition-colors focus:ring-2"
-                />
-                {pipelineSearch && (
-                  <button
-                    type="button"
-                    aria-label="Clear search"
-                    onClick={() => setPipelineSearch("")}
-                    className="text-muted-foreground/70 hover:text-foreground hover:bg-muted absolute top-1/2 right-2 flex size-5 -translate-y-1/2 items-center justify-center rounded-full transition-colors"
-                  >
-                    <X className="size-3.5" />
-                  </button>
-                )}
-              </div>
-              <span className="text-muted-foreground text-xs tabular-nums">
-                <span className="font-mono">{pipelineCount}</span>{" "}
-                {pipelineCount === 1 ? "listing" : "listings"}
-              </span>
-            </div>
-          ) : (
-            <span className="text-muted-foreground text-xs tabular-nums">
-              {!loading && jobs.length > 0 && (
-                <>
-                  <span className="font-mono">{jobs.length}</span>{" "}
-                  {jobs.length === 1 ? "listing" : "listings"}
-                </>
+          <div className="flex flex-1 flex-wrap items-center gap-3">
+            <div className="relative w-full max-w-xs">
+              <Search className="text-muted-foreground/70 pointer-events-none absolute top-1/2 left-3 size-3.5 -translate-y-1/2" />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder={
+                  tab === "pipeline" ? "Search the pipeline…" : "Search jobs…"
+                }
+                aria-label={
+                  tab === "pipeline" ? "Search the pipeline" : "Search jobs"
+                }
+                className="border-border/70 bg-card/40 focus:border-ring focus:ring-ring/30 h-9 w-full rounded-full border pl-9 pr-9 text-sm outline-none transition-colors focus:ring-2"
+              />
+              {search && (
+                <button
+                  type="button"
+                  aria-label="Clear search"
+                  onClick={() => setSearch("")}
+                  className="text-muted-foreground/70 hover:text-foreground hover:bg-muted absolute top-1/2 right-2 flex size-5 -translate-y-1/2 items-center justify-center rounded-full transition-colors"
+                >
+                  <X className="size-3.5" />
+                </button>
               )}
-            </span>
-          )}
+            </div>
+            {!loading && jobs.length > 0 && (
+              <span className="text-muted-foreground text-xs tabular-nums">
+                <span className="font-mono">{filteredCount}</span>{" "}
+                {filteredCount === 1 ? "listing" : "listings"}
+              </span>
+            )}
+          </div>
 
           <div className="flex items-center gap-2">
             {tab === "pipeline" ? (
@@ -995,16 +992,18 @@ export function JobBoard() {
               <Skeleton key={i} className="h-40 rounded-2xl" />
             ))}
           </div>
+        ) : search.trim() && filteredJobs.length === 0 && jobs.length > 0 ? (
+          <EmptyState
+            icon={<Search className="size-5" />}
+            title="No matching jobs"
+            description={
+              tab === "pipeline"
+                ? "No pipeline entries match your search. Try a different company, role, or status."
+                : "No jobs match your search. Try a different company, role, or location."
+            }
+          />
         ) : tab === "pipeline" ? (
-          pipelineSearch.trim() && pipelineFiltered.length === 0 && jobs.length > 0 ? (
-            <EmptyState
-              icon={<Search className="size-5" />}
-              title="No matching jobs"
-              description="No pipeline entries match your search. Try a different company, role, or status."
-            />
-          ) : (
-            <PipelineTable jobs={pipelineFiltered} onSaveNote={handleSaveNote} />
-          )
+          <PipelineTable jobs={filteredJobs} onSaveNote={handleSaveNote} />
         ) : jobs.length === 0 ? (
           <EmptyState
             icon={(() => {
@@ -1021,7 +1020,7 @@ export function JobBoard() {
           />
         ) : (
           <div className="grid gap-4">
-            {jobs.map((job) => (
+            {filteredJobs.map((job) => (
               <JobCard
                 key={job.id}
                 job={job}
