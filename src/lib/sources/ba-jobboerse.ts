@@ -2,37 +2,46 @@ import { inferJobType, inferSeniority } from "@/lib/infer";
 import { fetchWithTimeout } from "./http";
 import type { JobSource, RawJob, SearchParams } from "./types";
 
+// v4 was retired (now returns 403 for every request); v6 is the current
+// endpoint used by the official Jobsuche app. Same X-API-Key, new response
+// shape (see the type defs below — field names changed across the board).
 const BASE_URL =
-  "https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v4/jobs";
+  "https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v6/jobs";
 const API_KEY = "jobboerse-jobsuche";
 const PAGE_SIZE = 50;
 const MAX_PAGES = 4; // up to 200 jobs per title × location query
 const MAX_TITLES = 5;
 const PUBLISHED_SINCE_DAYS = 40; // veroeffentlichtseit cap (API max 100)
 
-type BaArbeitsort = {
+type BaAdresse = {
   ort?: string;
   region?: string;
   plz?: string;
   land?: string;
 };
 
+type BaStellenlokation = {
+  adresse?: BaAdresse;
+};
+
 type BaStellenangebot = {
-  beruf?: string;
-  titel?: string;
-  refnr?: string;
-  arbeitgeber?: string;
-  arbeitsort?: BaArbeitsort;
-  aktuelleVeroeffentlichungsdatum?: string;
-  externeUrl?: string;
+  hauptberuf?: string;
+  stellenangebotsTitel?: string;
+  referenznummer?: string;
+  firma?: string;
+  stellenlokationen?: BaStellenlokation[];
+  veroeffentlichungszeitraum?: { von?: string };
+  datumErsteVeroeffentlichung?: string;
+  homeofficemoeglich?: boolean;
+  externeURL?: string;
 };
 
 type BaResponse = {
-  stellenangebote?: BaStellenangebot[];
+  ergebnisliste?: BaStellenangebot[];
 };
 
 /** Distinct query targets derived from the selected location options. */
-type Target = { wo?: string; remote?: boolean };
+type Target = { wo?: string };
 
 function buildTargets(params: SearchParams): Target[] {
   const targets: Target[] = [];
@@ -43,24 +52,29 @@ function buildTargets(params: SearchParams): Target[] {
     else if (loc.baWo) targets.push({ wo: loc.baWo });
     else nationwide = true;
   }
-  if (remote) targets.push({ remote: true });
-  if (nationwide || targets.length === 0) targets.push({});
+  // The v6 API dropped a working server-side "home office only" filter
+  // (arbeitszeit=ho is accepted but silently matches zero listings now), so a
+  // Remote selection folds into an unfiltered nationwide query instead of a
+  // dead one — remote-ness is read back per listing via `homeofficemoeglich`.
+  if (remote || nationwide || targets.length === 0) targets.push({});
   return targets;
 }
 
 function detailUrl(item: BaStellenangebot): string {
-  if (item.externeUrl) return item.externeUrl;
-  const ref = item.refnr ? encodeURIComponent(item.refnr) : "";
+  if (item.externeURL) return item.externeURL;
+  const ref = item.referenznummer
+    ? encodeURIComponent(item.referenznummer)
+    : "";
   return `https://www.arbeitsagentur.de/jobsuche/jobdetail/${ref}`;
 }
 
-function formatLocation(ort?: BaArbeitsort, remote?: boolean): string {
-  if (remote && !ort?.ort) return "Remote (Germany)";
+function formatLocation(ort?: BaAdresse, homeoffice?: boolean): string {
+  if (homeoffice && !ort?.ort) return "Remote (Germany)";
   const label = [ort?.ort, ort?.region]
     .filter((p): p is string => !!p)
     .filter((p, i, arr) => arr.indexOf(p) === i)
     .join(", ");
-  return label || (remote ? "Remote (Germany)" : "Germany");
+  return label || (homeoffice ? "Remote (Germany)" : "Germany");
 }
 
 async function fetchOnePage(
@@ -77,7 +91,6 @@ async function fetchOnePage(
     url.searchParams.set("wo", target.wo);
     url.searchParams.set("umkreis", "30");
   }
-  if (target.remote) url.searchParams.set("arbeitszeit", "ho");
 
   const res = await fetchWithTimeout(url, {
     headers: { "X-API-Key": API_KEY },
@@ -87,7 +100,7 @@ async function fetchOnePage(
     throw new Error(`BA Jobbörse returned ${res.status} for "${was}"`);
   }
   const data = (await res.json()) as BaResponse;
-  return data.stellenangebote ?? [];
+  return data.ergebnisliste ?? [];
 }
 
 /** Fetch every page of results (up to MAX_PAGES) for one title × location combo. */
@@ -104,23 +117,28 @@ async function fetchAllPages(
   return all;
 }
 
-function toRawJob(item: BaStellenangebot, remote?: boolean): RawJob | null {
-  if (!item.refnr) return null;
-  const title = item.titel?.trim() || item.beruf?.trim();
+function toRawJob(item: BaStellenangebot): RawJob | null {
+  if (!item.referenznummer) return null;
+  const title = item.stellenangebotsTitel?.trim() || item.hauptberuf?.trim();
   if (!title) return null;
-  const company = item.arbeitgeber?.trim() || "Unknown company";
+  const company = item.firma?.trim() || "Unknown company";
   const text = `${title} ${company}`;
   let publishedAt: Date | null = null;
-  if (item.aktuelleVeroeffentlichungsdatum) {
-    const d = new Date(item.aktuelleVeroeffentlichungsdatum);
+  const publishedRaw =
+    item.veroeffentlichungszeitraum?.von || item.datumErsteVeroeffentlichung;
+  if (publishedRaw) {
+    const d = new Date(publishedRaw);
     if (!Number.isNaN(d.getTime())) publishedAt = d;
   }
   return {
     source: "BA_JOBBOERSE",
-    externalId: item.refnr,
+    externalId: item.referenznummer,
     title,
     company,
-    location: formatLocation(item.arbeitsort, remote),
+    location: formatLocation(
+      item.stellenlokationen?.[0]?.adresse,
+      item.homeofficemoeglich,
+    ),
     url: detailUrl(item),
     publisher: null,
     description: "",
@@ -158,7 +176,7 @@ export const baJobboerse: JobSource = {
           fetchAllPages(title, target)
             .then((items) => {
               for (const item of items) {
-                const raw = toRawJob(item, target.remote);
+                const raw = toRawJob(item);
                 if (raw && !seen.has(raw.externalId)) {
                   seen.add(raw.externalId);
                   jobs.push(raw);
